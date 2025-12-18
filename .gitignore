@@ -1,0 +1,19 @@
+# Wykluczenie folderu z notebookami
+notebooks/
+dataset/
+results/
+
+# Wykluczenie plików wag
+*.pth
+*.pt
+*.ckpt
+*.weights
+*.h5
+*.pb
+
+# Podstawowe pliki Pythona i systemowe
+__pycache__/
+*.py[cod]
+.env
+venv/
+.DS_Store
