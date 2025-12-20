@@ -1,0 +1,17 @@
+name: rdd_env
+channels:
+  - pytorch
+  - nvidia
+  - defaults
+dependencies:
+  - python=3.9
+  - pytorch
+  - torchvision
+  - pytorch-cuda=11.7        # Wersja CUDA pasująca do RTX 3070 (seria 30xx)
+  - numpy
+  - pyyaml
+  - tqdm
+  - pillow
+  - pip
+  - pip:
+    - torchmetrics
