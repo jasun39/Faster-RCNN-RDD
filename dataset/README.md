@@ -1,0 +1,1 @@
+Jak pobrać zbiór danych
