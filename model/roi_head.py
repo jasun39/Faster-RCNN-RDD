@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torchvision
-from utils import (get_iou, boxes_to_transformation_targets, 
+from .utils import (get_iou, boxes_to_transformation_targets, 
                    apply_regression_pred_to_anchors_or_proposals, 
                    sample_positive_negative, clamp_boxes_to_image_boundary)
 
@@ -41,6 +41,15 @@ class ROIHead(nn.Module):
         """
         Przypisz propozycje do ramek gt lub tła na podstawie IOU
         """
+        if gt_boxes.numel() == 0:
+            # Sytuacja: Brak obiektów na zdjęciu (samo tło)
+            device = proposals.device
+            # Wszystkie etykiety ustawiamy na 0 (tło)
+            labels = torch.zeros(proposals.shape[0], dtype=torch.int64, device=device)
+            # Ramki dopasowane to same zera (nie będą używane do straty lokalizacji, bo etykieta to 0)
+            matched_gt_boxes = torch.zeros_like(proposals)
+            return labels, matched_gt_boxes
+        
         iou_matrix = get_iou(gt_boxes, proposals)
         best_match_iou, best_match_gt_idx = iou_matrix.max(dim=0)
         background_proposals = (best_match_iou < self.iou_threshold) & (best_match_iou >= self.low_bg_iou)

@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from utils import (get_iou, boxes_to_transformation_targets, 
+from .utils import (get_iou, boxes_to_transformation_targets, 
                    apply_regression_pred_to_anchors_or_proposals, 
                    sample_positive_negative, clamp_boxes_to_image_boundary)
 
@@ -79,6 +79,14 @@ class RegionProposalNetwork(nn.Module):
         r"""
         Dla każdej kotwicy przypisz ramkę ground truth na podstawie IOU.
         """
+        if gt_boxes.numel() == 0:
+            # Sytuacja: Brak obiektów na zdjęciu (samo tło)
+            device = anchors.device
+            # Wszystkie etykiety ustawiamy na 0 (tło)
+            labels = torch.zeros(anchors.shape[0], dtype=torch.int64, device=device)
+            # Ramki dopasowane to same zera (nie będą używane do straty lokalizacji, bo etykieta to 0)
+            matched_gt_boxes = torch.zeros_like(anchors)
+            return labels, matched_gt_boxes
         iou_matrix = get_iou(gt_boxes, anchors)
         best_match_iou, best_match_gt_idx = iou_matrix.max(dim=0)
         best_match_gt_idx_pre_thresholding = best_match_gt_idx.clone()
@@ -199,7 +207,7 @@ class RegionProposalNetwork(nn.Module):
             ) 
 
             cls_loss = torch.nn.functional.binary_cross_entropy_with_logits(cls_scores[sampled_idxs].flatten(),
-                                                                            labels_for_anchors[sampled_idxs].flatten())
+                                                                            labels_for_anchors[sampled_idxs].flatten().float())
 
             rpn_output['rpn_classification_loss'] = cls_loss
             rpn_output['rpn_localization_loss'] = localization_loss

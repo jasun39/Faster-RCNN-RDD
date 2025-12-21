@@ -1,22 +1,32 @@
 import torch
 import torch.nn as nn
 import torchvision
-from rpn import RegionProposalNetwork
-from roi_head import ROIHead
-from utils import transform_boxes_to_original_size
+from torchvision.models import resnet50, ResNet50_Weights
+from .rpn import RegionProposalNetwork
+from .roi_head import ROIHead
+from .utils import transform_boxes_to_original_size
 
 class FasterRCNN(nn.Module):
     def __init__(self, model_config, num_classes):
         super(FasterRCNN, self).__init__()
         self.model_config = model_config
-        vgg16 = torchvision.models.vgg16(pretrained=True)
-        self.backbone = vgg16.features[:-1]
+        resnet = resnet50(weights=ResNet50_Weights.DEFAULT)
+        self.backbone = nn.Sequential(
+            resnet.conv1,
+            resnet.bn1,
+            resnet.relu,
+            resnet.maxpool,
+            resnet.layer1,
+            resnet.layer2,
+            resnet.layer3,
+            resnet.layer4
+            )
         self.rpn = RegionProposalNetwork(model_config['backbone_out_channels'],
                                          scales=model_config['scales'],
                                          aspect_ratios=model_config['aspect_ratios'],
                                          model_config=model_config)
         self.roi_head = ROIHead(model_config, num_classes, in_channels=model_config['backbone_out_channels'])
-        for layer in self.backbone[:10]:
+        for layer in [self.backbone[0], self.backbone[1], self.backbone[4]]: # conv1, bn1, layer1
             for p in layer.parameters():
                 p.requires_grad = False
         self.image_mean = [0.485, 0.456, 0.406]
