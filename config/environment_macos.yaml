@@ -1,0 +1,15 @@
+name: rdd_env
+channels:
+  - pytorch
+  - conda-forge
+dependencies:
+  - python=3.10              # Python 3.10 jest stabilniejszy na Apple Silicon
+  - pytorch                  # Zainstaluje wersję z obsługą MPS (Metal) automatycznie
+  - torchvision
+  - numpy
+  - pyyaml
+  - tqdm
+  - pillow
+  - pip
+  - pip:
+    - torchmetrics

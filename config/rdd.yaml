@@ -34,12 +34,12 @@ model_params:
   roi_score_threshold : 0.05
   roi_batch_size : 128
   roi_pos_fraction : 0.25
-  backbone_out_channels : 512
   roi_pool_size : 7
 
 train_params:
-  task_name: 'rdd_detection'
+  task_name: 'results'
   seed : 1111
+  train_val_ratio : 0.8
   acc_steps : 1 
   num_epochs: 20
   lr_steps : [12, 16]
