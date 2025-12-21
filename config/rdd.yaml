@@ -1,8 +1,8 @@
 dataset_params:
-  root_path: 'dataset'
-  countries: ['China_Drone', 'Czech', 'India', 'Japan', 'Norway', 'United_States']
+  root_path: 'dataset/RDD2022'
+  countries: ['China_Drone', 'China_MotorBike', 'Czech', 'India', 'Japan', 'Norway', 'United_States']
   class_mapping:
-    'background': 0
+    'tlo': 0
     'PPD': 1 # Pęknięcie podłuzne
     'PPP': 2 # Pęknięcie poprzeczne
     'PS': 3 # Pęknięcie siatkowe
@@ -13,8 +13,8 @@ model_params:
   im_channels : 3
   aspect_ratios: [0.5, 1, 2]
   scales: [128, 256, 512]
-  min_im_size : 600
-  max_im_size : 1000
+  min_im_size : 640
+  max_im_size : 1280
   backbone_out_channels : 2048 # Dla ResNet50, dla VGG16 512
   fc_inner_dim : 1024
   rpn_bg_threshold : 0.3

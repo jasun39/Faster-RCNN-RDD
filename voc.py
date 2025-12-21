@@ -4,27 +4,26 @@ import xml.etree.ElementTree as ET
 import random
 from PIL import Image
 from torch.utils.data import Dataset
+import torchvision.transforms.functional as F
 
 class VOCDataset(Dataset):
     r"""
     Klasa obsługująca zbiór RDD2022. Automatycznie przeszukuje foldery krajów 
     w poszukiwaniu zdjęć i adnotacji XML.
     """
-    def __init__(self, split, root_path, countries, class_mapping, ratio, seed=1111):
-        self.split = split  # 'train', 'val' lub 'test'
+    def __init__(self, root_path, countries, class_mapping, split='train'):
         self.class_mapping = class_mapping
+        self.split = split
         self.images_data = []
-        self.ratio = ratio
-        self.seed = seed
-        all_train_data = []
+
+        folder_name = 'test' if split == 'test' else 'train'
 
         # Zbieranie ścieżek do wszystkich zdjęć ze wszystkich wybranych krajów
         for country in countries:
             # Określamy folder źródłowy: dla train/val zawsze bierzemy z 'train'
             skip_count = 0
-            current_split = 'test' if split == 'test' else 'train'
-            img_dir = os.path.join(root_path, country, current_split, 'images')
-            ann_dir = os.path.join(root_path, country, current_split, 'annotations', 'xmls')
+            img_dir = os.path.join(root_path, country, folder_name, 'images')
+            ann_dir = os.path.join(root_path, country, folder_name, 'annotations', 'xmls')
             
             if not os.path.exists(img_dir):
                 skip_count += 1
@@ -36,44 +35,30 @@ class VOCDataset(Dataset):
                     ann_path = os.path.join(ann_dir, img_name.replace('.jpg', '.xml'))
 
                     # Dodaj tylko jeśli istnieją oba pliki (zdjęcie i adnotacja)
-                    if current_split == 'test' or os.path.exists(ann_path):
-                        item = {'img_path': img_path, 'ann_path': ann_path}
-                        
-                        if current_split == 'test':
-                            self.images_data.append(item)
-                        else:
-                            # Dla train/val wrzucamy do wspólnego all_train_data
-                            all_train_data.append(item)
+                    if split == 'test':
+                        self.images_data.append({'img_path': img_path, 'ann_path': None})
+                    elif split == 'train' and os.path.exists(ann_path):
+                        self.images_data.append({'img_path': img_path, 'ann_path': ann_path})
             
             print(f"Pominięto {skip_count} w zbiorze {country}")
-                        
-        # Logika podziału train/val
-        if split in ['train', 'val']:
-            random.seed(seed)
-            random.shuffle(all_train_data)
-            val_size = int(len(all_train_data) * ratio)
-            
-            if split == 'val':
-                self.images_data = all_train_data[:val_size]
-            else:
-                self.images_data = all_train_data[val_size:]
 
     def __len__(self):
         return len(self.images_data)
 
     def __getitem__(self, idx):
-        info = self.images_data[idx]
-        img = Image.open(info['img_path']).convert("RGB")
+        data = self.images_data[idx]
+        img = Image.open(data['img_path']).convert("RGB")
+        img_tensor = F.to_tensor(img)
         
-        # Przekształcenie obrazu na tensor (zgodnie z wymaganiami modelu)
-        img_tensor = torch.tensor(list(img.getdata())).reshape(img.size[1], img.size[0], 3)
-        img_tensor = img_tensor.permute(2, 0, 1).float() / 255.0 # (C, H, W)
-        
-        if self.split == 'test':
-            return img_tensor, info['img_path']
+        if self.split == 'test' or data['ann_path'] is None:
+            target = {
+                'bboxes': torch.zeros((0, 4), dtype=torch.float32),
+                'labels': torch.zeros((0,), dtype=torch.int64)
+            }
+            return img_tensor, target, data['img_path']
 
         # Parsowanie pliku XML z adnotacjami
-        tree = ET.parse(info['ann_path'])
+        tree = ET.parse(data['ann_path'])
         root = tree.getroot()
         
         bboxes = []
@@ -107,4 +92,4 @@ class VOCDataset(Dataset):
             target['bboxes'] = torch.zeros((0, 4), dtype=torch.float32)
             target['labels'] = torch.zeros((0,), dtype=torch.int64)
 
-        return img_tensor, target, info['img_path']
+        return img_tensor, target, data['img_path']

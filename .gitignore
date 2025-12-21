@@ -1,6 +1,6 @@
 # Wykluczenie folderu z notebookami
 notebooks/
-
+RDD2022/
 # Wykluczenie plików wag
 *.pth
 *.pt
@@ -9,6 +9,8 @@ notebooks/
 *.h5
 *.pb
 *.zip
+*.jpg
+*.xml
 
 # Podstawowe pliki Pythona i systemowe
 __pycache__/

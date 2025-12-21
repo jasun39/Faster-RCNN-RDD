@@ -7,11 +7,12 @@ import yaml
 import random
 from tqdm import tqdm
 from torch.utils.data.dataloader import DataLoader
+from torch.utils.data import random_split
 from torch.optim.lr_scheduler import MultiStepLR
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
 
 from model.faster_rcnn import FasterRCNN
-from dataset.voc import VOCDataset
+from voc import VOCDataset
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -102,25 +103,18 @@ def train(args):
         torch.cuda.manual_seed_all(seed)
     
     # Tworzenie DataLoaderów dla treningu i walidacji z automatycznym podziałem
-    train_dataset = VOCDataset(
-        'train', 
+    train_dataset = VOCDataset( 
         root_path=dataset_config['root_path'], 
         countries=dataset_config['countries'], 
         class_mapping=dataset_config['class_mapping'],
-        ratio = train_config['train_val_ratio'],
-        seed=seed
+        split='train'
     )
-    val_dataset = VOCDataset(
-        'val', 
-        root_path=dataset_config['root_path'], 
-        countries=dataset_config['countries'], 
-        class_mapping=dataset_config['class_mapping'],
-        ratio = train_config['train_val_ratio'],
-        seed=seed
-    )
+    generator = torch.Generator().manual_seed(seed)
 
-    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=4)
-    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=4)
+    train_subset, val_subset = random_split(train_dataset, [train_config['train_val_ratio'], 1-train_config['train_val_ratio']], generator=generator)
+
+    train_loader = DataLoader(train_subset, batch_size=1, shuffle=True, num_workers=4)
+    val_loader = DataLoader(val_subset, batch_size=1, shuffle=False, num_workers=4)
 
     # Inicjalizacja modelu Faster R-CNN
     faster_rcnn_model = FasterRCNN(model_config, num_classes=dataset_config['num_classes'])
@@ -228,6 +222,6 @@ if __name__ == '__main__':
                         default='config/rdd.yaml', type=str,
                         help='Ścieżka do pliku konfiguracyjnego YAML')
 
-    #parser.add_argument('--debug', action='store_true', help='Uruchom krótki trening testowy (Dry Run)')
+    parser.add_argument('--debug', action='store_true', help='Uruchom krótki trening testowy (Dry Run)')
     args = parser.parse_args()
     train(args)
