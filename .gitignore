@@ -1,7 +1,5 @@
 # Wykluczenie folderu z notebookami
 notebooks/
-dataset/
-results/
 
 # Wykluczenie plików wag
 *.pth
@@ -10,6 +8,7 @@ results/
 *.weights
 *.h5
 *.pb
+*.zip
 
 # Podstawowe pliki Pythona i systemowe
 __pycache__/
