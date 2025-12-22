@@ -40,6 +40,7 @@ train_params:
   task_name: 'results'
   seed : 1111
   train_val_ratio : 0.8
+  batch_size : 16
   acc_steps : 1
   num_epochs: 10
   lr_steps : [12, 16]

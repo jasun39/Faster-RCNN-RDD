@@ -127,7 +127,7 @@ def train(args):
 
     train_loader = DataLoader(
         train_subset, 
-        batch_size=16, 
+        batch_size=train_config['batch_size'], 
         shuffle=True, 
         num_workers=2, 
         pin_memory=True,
@@ -135,7 +135,7 @@ def train(args):
     )
     val_loader = DataLoader(
         val_subset, 
-        batch_size=16, 
+        batch_size=train_config['batch_size'], 
         shuffle=False, 
         num_workers=2, 
         pin_memory=True,
