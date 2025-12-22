@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torchvision
-from torchvision.models import resnet50, ResNet50_Weights
+from torchvision.models import resnet18, ResNet18_Weights
 from .rpn import RegionProposalNetwork
 from .roi_head import ROIHead
 from .utils import transform_boxes_to_original_size
@@ -10,7 +10,7 @@ class FasterRCNN(nn.Module):
     def __init__(self, model_config, num_classes):
         super(FasterRCNN, self).__init__()
         self.model_config = model_config
-        resnet = resnet50(weights=ResNet50_Weights.DEFAULT)
+        resnet = resnet18(weights=ResNet18_Weights.DEFAULT)
         self.backbone = nn.Sequential(
             resnet.conv1,
             resnet.bn1,
@@ -45,8 +45,8 @@ class FasterRCNN(nn.Module):
         # Przeskalowanie
         h, w = image.shape[-2:]
         im_shape = torch.tensor(image.shape[-2:])
-        min_size = torch.min(im_shape).to(dtype=torch.float32)
-        max_size = torch.max(im_shape).to(dtype=torch.float32)
+        min_size = torch.min(im_shape).to(dtype=torch.float16)
+        max_size = torch.max(im_shape).to(dtype=torch.float16)
         scale = torch.min(
             float(self.min_size) / min_size, 
             float(self.max_size) / max_size)
@@ -63,8 +63,8 @@ class FasterRCNN(nn.Module):
 
         if bboxes is not None:
             ratios = [
-                torch.tensor(s, dtype=torch.float32, device=bboxes.device)
-                / torch.tensor(s_orig, dtype=torch.float32, device=bboxes.device)
+                torch.tensor(s, dtype=torch.float16, device=bboxes.device)
+                / torch.tensor(s_orig, dtype=torch.float16, device=bboxes.device)
                 for s, s_orig in zip(image.shape[-2:], (h, w))
             ]
             ratio_height, ratio_width = ratios

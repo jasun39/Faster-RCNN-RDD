@@ -10,7 +10,6 @@ from torch.utils.data.dataloader import DataLoader
 from torch.utils.data import random_split
 from torch.optim.lr_scheduler import MultiStepLR
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
-from torch.cuda.amp import GradScaler, autocast
 
 from model.faster_rcnn import FasterRCNN
 from voc import VOCDataset
@@ -35,7 +34,7 @@ def validate(model, dataloader, device, debug_mode=False):
             
             im = im.float().to(device, non_blocking=True)
             # Uzyskanie predykcji (w trybie eval model zwraca przefiltrowane ramki)
-            with autocast():
+            with torch.amp.autocast('cuda'):
                 rpn_output, frcnn_output = model(im)
             
             # Przygotowanie wyników do formatu torchmetrics
@@ -139,7 +138,7 @@ def train(args):
         os.mkdir(train_config['task_name'])
     
     #Inicjalizacja Scalera do Mixed Precision
-    scaler = GradScaler()
+    scaler = torch.amp.GradScaler('cuda')
 
     # Konfiguracja optymalizatora i harmonogramu uczenia
     optimizer = torch.optim.SGD(
@@ -176,7 +175,7 @@ def train(args):
                 target['labels'] = target['labels'].long().to(device, non_blocking=True)
                 
                 # Przejście przez model i obliczenie strat
-                with autocast():
+                with torch.amp.autocast('cuda'):
                     rpn_output, frcnn_output = faster_rcnn_model(im, target)
                     
                     rpn_loss = rpn_output['rpn_classification_loss'] + rpn_output['rpn_localization_loss']
