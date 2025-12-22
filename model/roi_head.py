@@ -66,34 +66,59 @@ class ROIHead(nn.Module):
         
         return labels, matched_gt_boxes_for_proposals
     
-    def forward(self, feat, proposals, image_shape, target):
-        if self.training and target is not None:
-            proposals = torch.cat([proposals, target['bboxes'][0]], dim=0)
-            gt_boxes = target['bboxes'][0]
-            gt_labels = target['labels'][0]
-            
-            labels, matched_gt_boxes_for_proposals = self.assign_target_to_proposals(proposals, gt_boxes, gt_labels)
-            sampled_neg_idx_mask, sampled_pos_idx_mask = sample_positive_negative(labels,
-                                                                                  positive_count=self.roi_pos_count,
-                                                                                  total_count=self.roi_batch_size)
-            
-            sampled_idxs = torch.where(sampled_pos_idx_mask | sampled_neg_idx_mask)[0]
-            proposals = proposals[sampled_idxs]
-            labels = labels[sampled_idxs]
-            matched_gt_boxes_for_proposals = matched_gt_boxes_for_proposals[sampled_idxs]
-            regression_targets = boxes_to_transformation_targets(matched_gt_boxes_for_proposals, proposals)
+    def forward(self, feat, proposals, image_shapes, targets=None):
+        """
+        Args:
+            feat: Tensor [Batch, C, H, W]
+            proposals: List[Tensor] - lista propozycji dla każdego obrazu
+            image_shapes: List[Tuple] - lista wymiarów obrazów
+            targets: List[Dict] - lista targetów (opcjonalnie)
+        """
+        final_proposals = []
+        final_labels = []
+        final_regression_targets = []
         
-        size = feat.shape[-2:]
-        possible_scales = []
-        for s1, s2 in zip(size, image_shape):
-            approx_scale = float(s1) / float(s2)
-            scale = 2 ** float(torch.tensor(approx_scale).log2().round())
-            possible_scales.append(scale)
-        assert possible_scales[0] == possible_scales[1]
+        if self.training and targets is not None:
+            for i in range(len(proposals)):
+                proposals_i = proposals[i]
+                gt_boxes = targets[i]['bboxes']
+                gt_labels = targets[i]['labels']
+                
+                proposals_i = torch.cat([proposals_i, gt_boxes], dim=0)
+                
+                labels, matched_gt_boxes = self.assign_target_to_proposals(proposals_i, gt_boxes, gt_labels)
+                
+                sampled_neg_idx_mask, sampled_pos_idx_mask = sample_positive_negative(
+                    labels,
+                    positive_count=self.roi_pos_count,
+                    total_count=self.roi_batch_size
+                )
+                
+                sampled_idxs = torch.where(sampled_pos_idx_mask | sampled_neg_idx_mask)[0]
+                
+                proposals_i = proposals_i[sampled_idxs]
+                labels = labels[sampled_idxs]
+                matched_gt_boxes = matched_gt_boxes[sampled_idxs]
+                
+                regression_targets_i = boxes_to_transformation_targets(matched_gt_boxes, proposals_i)
+                
+                final_proposals.append(proposals_i)
+                final_labels.append(labels)
+                final_regression_targets.append(regression_targets_i)
+        else:
+            # W trybie testowym po prostu bierzemy propozycje z RPN
+            final_proposals = proposals
+
+        scale_h = feat.shape[-2] / float(feat.shape[-2] * 16)
+        spatial_scale = 1.0 / 32.0 
         
-        proposal_roi_pool_feats = torchvision.ops.roi_pool(feat, [proposals],
-                                                           output_size=self.pool_size,
-                                                           spatial_scale=possible_scales[0])
+        proposal_roi_pool_feats = torchvision.ops.roi_pool(
+            feat, 
+            final_proposals, 
+            output_size=self.pool_size,
+            spatial_scale=spatial_scale
+        )
+        
         proposal_roi_pool_feats = proposal_roi_pool_feats.flatten(start_dim=1)
         box_fc_6 = torch.nn.functional.relu(self.fc6(proposal_roi_pool_feats))
         box_fc_7 = torch.nn.functional.relu(self.fc7(box_fc_6))
@@ -102,47 +127,77 @@ class ROIHead(nn.Module):
         
         num_boxes, num_classes = cls_scores.shape
         box_transform_pred = box_transform_pred.reshape(num_boxes, num_classes, 4)
+        
         frcnn_output = {}
-        if self.training and target is not None:
-            classification_loss = torch.nn.functional.cross_entropy(cls_scores, labels)
-            fg_proposals_idxs = torch.where(labels > 0)[0]
-            fg_cls_labels = labels[fg_proposals_idxs]
+        
+        # Obliczanie Straty (Training)
+        if self.training and targets is not None:
+            all_labels = torch.cat(final_labels, dim=0)
+            all_regression_targets = torch.cat(final_regression_targets, dim=0)
+            
+            classification_loss = torch.nn.functional.cross_entropy(cls_scores, all_labels)
+            
+            fg_proposals_idxs = torch.where(all_labels > 0)[0]
+            fg_cls_labels = all_labels[fg_proposals_idxs]
             
             localization_loss = torch.nn.functional.smooth_l1_loss(
                 box_transform_pred[fg_proposals_idxs, fg_cls_labels],
-                regression_targets[fg_proposals_idxs],
+                all_regression_targets[fg_proposals_idxs],
                 beta=1/9,
                 reduction="sum",
             )
-            localization_loss = localization_loss / labels.numel()
+            localization_loss = localization_loss / (all_labels.numel() + 1e-5)
+            
             frcnn_output['frcnn_classification_loss'] = classification_loss
             frcnn_output['frcnn_localization_loss'] = localization_loss
+            
+            return frcnn_output
         
-        if self.training:
-            return frcnn_output
         else:
-            device = cls_scores.device
-            pred_boxes = apply_regression_pred_to_anchors_or_proposals(box_transform_pred, proposals)
-            pred_scores = torch.nn.functional.softmax(cls_scores, dim=-1)
-            pred_boxes = clamp_boxes_to_image_boundary(pred_boxes, image_shape)
+            boxes_per_image = [len(p) for p in final_proposals]
             
-            pred_labels = torch.arange(num_classes, device=device)
-            pred_labels = pred_labels.view(1, -1).expand_as(pred_scores)
+            pred_boxes_list = box_transform_pred.split(boxes_per_image, 0)
+            pred_scores_list = cls_scores.split(boxes_per_image, 0)
             
-            pred_boxes = pred_boxes[:, 1:]
-            pred_scores = pred_scores[:, 1:]
-            pred_labels = pred_labels[:, 1:]
+            all_final_boxes = []
+            all_final_scores = []
+            all_final_labels = []
             
-            pred_boxes = pred_boxes.reshape(-1, 4)
-            pred_scores = pred_scores.reshape(-1)
-            pred_labels = pred_labels.reshape(-1)
+            for i, (pred_boxes_i, pred_scores_i) in enumerate(zip(pred_boxes_list, pred_scores_list)):
+                # Logika dla pojedynczego zdjęcia
+                proposals_i = final_proposals[i]
+                image_shape_i = image_shapes[i]
+                
+                # Aplikacja regresji
+                pred_boxes_i = apply_regression_pred_to_anchors_or_proposals(pred_boxes_i, proposals_i)
+                pred_scores_i = torch.nn.functional.softmax(pred_scores_i, dim=-1)
+                
+                # Przycinanie do image_shape
+                pred_boxes_i = clamp_boxes_to_image_boundary(pred_boxes_i, image_shape_i)
+                
+                # Rozpakowanie klas, pomijamy klasę tła (0)
+                pred_labels_i = torch.arange(num_classes, device=feat.device)
+                pred_labels_i = pred_labels_i.view(1, -1).expand_as(pred_scores_i)
+                
+                pred_boxes_i = pred_boxes_i[:, 1:].reshape(-1, 4)
+                pred_scores_i = pred_scores_i[:, 1:].reshape(-1)
+                pred_labels_i = pred_labels_i[:, 1:].reshape(-1)
+                
+                # Filtrowanie
+                final_boxes, final_labels, final_scores = self.filter_predictions(
+                    pred_boxes_i, pred_labels_i, pred_scores_i
+                )
+                
+                all_final_boxes.append(final_boxes)
+                all_final_scores.append(final_scores)
+                all_final_labels.append(final_labels)
             
-            pred_boxes, pred_labels, pred_scores = self.filter_predictions(pred_boxes, pred_labels, pred_scores)
-            frcnn_output['boxes'] = pred_boxes
-            frcnn_output['scores'] = pred_scores
-            frcnn_output['labels'] = pred_labels
+            frcnn_output['boxes'] = all_final_boxes 
+            frcnn_output['scores'] = all_final_scores
+            frcnn_output['labels'] = all_final_labels
+            
             return frcnn_output
-    
+
     def filter_predictions(self, pred_boxes, pred_labels, pred_scores):
         # Usuń ramki z niskim wynikiem
         keep = torch.where(pred_scores > self.low_score_threshold)[0]

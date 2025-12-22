@@ -121,7 +121,12 @@ class RegionProposalNetwork(nn.Module):
         """
         cls_scores = cls_scores.reshape(-1)
         cls_scores = torch.sigmoid(cls_scores)
-        _, top_n_idx = cls_scores.topk(min(self.rpn_prenms_topk, len(cls_scores)))
+
+        prenms_topk = self.rpn_prenms_topk
+        topk = self.rpn_topk
+
+        num_prenms = min(prenms_topk, len(cls_scores))
+        _, top_n_idx = cls_scores.topk(num_prenms)
         
         cls_scores = cls_scores[top_n_idx]
         proposals = proposals[top_n_idx]
@@ -141,74 +146,102 @@ class RegionProposalNetwork(nn.Module):
         keep_indices = torch.where(keep_mask)[0]
         post_nms_keep_indices = keep_indices[cls_scores[keep_indices].sort(descending=True)[1]]
         
-        proposals, cls_scores = (proposals[post_nms_keep_indices[:self.rpn_topk]],
-                                 cls_scores[post_nms_keep_indices[:self.rpn_topk]])
-        
+        num_postnms = min(topk, len(post_nms_keep_indices))
+        proposals, cls_scores = (proposals[post_nms_keep_indices[:num_postnms]],
+                                 cls_scores[post_nms_keep_indices[:num_postnms]])
         return proposals, cls_scores
     
-    def forward(self, image, feat, target=None):
+    def forward(self, image, feat, image_shapes, target=None):
 
         # Wywołanie warstw RPN
         rpn_feat = nn.ReLU()(self.rpn_conv(feat))
-        cls_scores = self.cls_layer(rpn_feat)
-        box_transform_pred = self.bbox_reg_layer(rpn_feat)
+        cls_scores_all = self.cls_layer(rpn_feat)
+        box_transform_pred_all = self.bbox_reg_layer(rpn_feat)
 
         # Generacja kotwic (anchores)
         anchors = self.generate_anchors(image, feat)
         
-        number_of_anchors_per_location = cls_scores.size(1)
-        cls_scores = cls_scores.permute(0, 2, 3, 1)
-        cls_scores = cls_scores.reshape(-1, 1)
+        batch_size = feat.shape[0]
+        number_of_anchors_per_location = cls_scores_all.size(1)
+        # Struktury na wyniki rozdzielone per zdjęcie
+        final_proposals = []
+        final_scores = []
         
-        box_transform_pred = box_transform_pred.view(
-            box_transform_pred.size(0),
-            number_of_anchors_per_location,
-            4,
-            rpn_feat.shape[-2],
-            rpn_feat.shape[-1])
-        box_transform_pred = box_transform_pred.permute(0, 3, 4, 1, 2)
-        box_transform_pred = box_transform_pred.reshape(-1, 4)
-        
-        # Zastosowanie predykcji na anchors
-        proposals = apply_regression_pred_to_anchors_or_proposals(
-            box_transform_pred.detach().reshape(-1, 1, 4),
-            anchors)
-        proposals = proposals.reshape(proposals.size(0), 4)
-        
-        proposals, scores = self.filter_proposals(proposals, cls_scores.detach(), image.shape)
+        total_cls_loss = 0
+        total_loc_loss = 0
+
+        # Pętla iterująca po każdym elemencie w batchu
+        for i in range(batch_size):
+            cls_scores = cls_scores_all[i]
+            box_transform_pred = box_transform_pred_all[i]
+            
+            cls_scores = cls_scores.permute(1, 2, 0).reshape(-1, 1)
+            
+            box_transform_pred = box_transform_pred.view(
+                number_of_anchors_per_location,
+                4,
+                rpn_feat.shape[-2],
+                rpn_feat.shape[-1])
+            box_transform_pred = box_transform_pred.permute(2, 3, 0, 1).reshape(-1, 4)
+            
+            # Zastosowanie predykcji na anchors
+            proposals = apply_regression_pred_to_anchors_or_proposals(
+                box_transform_pred.detach().reshape(-1, 1, 4),
+                anchors)
+            proposals = proposals.reshape(proposals.size(0), 4)
+            
+            # Filtrowanie przy użyciu rzeczywistego rozmiaru zdjęcia
+            proposals, scores = self.filter_proposals(proposals, cls_scores.detach(), image_shapes[i])
+            
+            final_proposals.append(proposals)
+            final_scores.append(scores)
+            
+            # Obliczanie straty (jeśli trening)
+            if self.training and target is not None:
+                gt_boxes = target[i]['bboxes']
+                
+                labels_for_anchors, matched_gt_boxes_for_anchors = self.assign_targets_to_anchors(
+                    anchors,
+                    gt_boxes)
+                
+                regression_targets = boxes_to_transformation_targets(matched_gt_boxes_for_anchors, anchors)
+                
+                sampled_neg_idx_mask, sampled_pos_idx_mask = sample_positive_negative(
+                    labels_for_anchors,
+                    positive_count=self.rpn_pos_count,
+                    total_count=self.rpn_batch_size)
+                
+                sampled_idxs = torch.where(sampled_pos_idx_mask | sampled_neg_idx_mask)[0]
+                
+                # Zabezpieczenie przed dzieleniem przez zero przy braku próbek
+                denom = sampled_idxs.numel()
+                if denom == 0: denom = 1.0
+
+                localization_loss = (
+                        torch.nn.functional.smooth_l1_loss(
+                            box_transform_pred[sampled_pos_idx_mask],
+                            regression_targets[sampled_pos_idx_mask],
+                            beta=1 / 9,
+                            reduction="sum",
+                        )
+                        / denom
+                ) 
+
+                cls_loss = torch.nn.functional.binary_cross_entropy_with_logits(cls_scores[sampled_idxs].flatten(),
+                                                                                labels_for_anchors[sampled_idxs].flatten().float())
+                
+                total_cls_loss += cls_loss
+                total_loc_loss += localization_loss
+
         rpn_output = {
-            'proposals': proposals,
-            'scores': scores
+            'proposals': final_proposals,
+            'scores': final_scores
         }
+        
         if not self.training or target is None:
             return rpn_output
         else:
-            labels_for_anchors, matched_gt_boxes_for_anchors = self.assign_targets_to_anchors(
-                anchors,
-                target['bboxes'][0])
-            
-            regression_targets = boxes_to_transformation_targets(matched_gt_boxes_for_anchors, anchors)
-            
-            sampled_neg_idx_mask, sampled_pos_idx_mask = sample_positive_negative(
-                labels_for_anchors,
-                positive_count=self.rpn_pos_count,
-                total_count=self.rpn_batch_size)
-            
-            sampled_idxs = torch.where(sampled_pos_idx_mask | sampled_neg_idx_mask)[0]
-            
-            localization_loss = (
-                    torch.nn.functional.smooth_l1_loss(
-                        box_transform_pred[sampled_pos_idx_mask],
-                        regression_targets[sampled_pos_idx_mask],
-                        beta=1 / 9,
-                        reduction="sum",
-                    )
-                    / (sampled_idxs.numel())
-            ) 
-
-            cls_loss = torch.nn.functional.binary_cross_entropy_with_logits(cls_scores[sampled_idxs].flatten(),
-                                                                            labels_for_anchors[sampled_idxs].flatten().float())
-
-            rpn_output['rpn_classification_loss'] = cls_loss
-            rpn_output['rpn_localization_loss'] = localization_loss
+            # Uśrednienie straty po całym batchu
+            rpn_output['rpn_classification_loss'] = total_cls_loss / batch_size
+            rpn_output['rpn_localization_loss'] = total_loc_loss / batch_size
             return rpn_output

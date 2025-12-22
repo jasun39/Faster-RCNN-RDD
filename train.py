@@ -16,6 +16,9 @@ from voc import VOCDataset
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+def collate_fn(batch):
+    return tuple(zip(*batch))
+
 def validate(model, dataloader, device, debug_mode=False):
     r"""
     Przeprowadza walidację na zbiorze walidacyjnym i oblicza metrykę mAP.
@@ -24,6 +27,7 @@ def validate(model, dataloader, device, debug_mode=False):
     model.eval()
     metric = MeanAveragePrecision()
     metric_updated = False
+    early_stop_triggered = False
     
     with torch.no_grad():
         with tqdm(dataloader, desc="Walidacja mAP") as pbar:
@@ -31,42 +35,49 @@ def validate(model, dataloader, device, debug_mode=False):
                 if debug_mode and step >= 5:
                     early_stop_triggered = True
                     break
-            
-            im = im.float().to(device, non_blocking=True)
-            # Uzyskanie predykcji (w trybie eval model zwraca przefiltrowane ramki)
-            with torch.amp.autocast('cuda'):
-                rpn_output, frcnn_output = model(im)
-            
-            # Przygotowanie wyników do formatu torchmetrics
-            preds = [
-                dict(
-                    boxes=frcnn_output['boxes'].to('cpu'),
-                    scores=frcnn_output['scores'].to('cpu'),
-                    labels=frcnn_output['labels'].to('cpu'),
-                )
-            ]
-            
-            # Przygotowanie celów (Ground Truth)
-            targets = [
-                dict(
-                    boxes=target['bboxes'][0].to('cpu'),
-                    labels=target['labels'][0].to('cpu'),
-                )
-            ]
-            
-            # Aktualizacja metryki, jeśli zdjęcie zawiera jakiekolwiek obiekty
-            if targets[0]['boxes'].shape[0] > 0:
-                metric.update(preds, targets)
-                metric_updated = True
 
-    if early_stop_triggered:
-        print("DEBUG: Przerwanie walidacji po 5 krokach.")
+                images = list(image.float().to(device) for image in im)
+                
+                # Uzyskanie predykcji
+                with torch.amp.autocast('cuda'):
+                    _, frcnn_output = model(images)
+                
+                preds = []
+                targets_list = []
+                
+                # frcnn_output['boxes'] jest listą o długości batch_size
+                batch_size_current = len(frcnn_output['boxes'])
+                
+                for i in range(batch_size_current):
+                    # Przygotowanie predykcji dla i-tego zdjęcia
+                    preds.append(dict(
+                        boxes=frcnn_output['boxes'][i].to('cpu'),
+                        scores=frcnn_output['scores'][i].to('cpu'),
+                        labels=frcnn_output['labels'][i].to('cpu'),
+                    ))
+                    
+                    # Przygotowanie targetu dla i-tego zdjęcia
+                    targets_list.append(dict(
+                        boxes=target[i]['bboxes'].to('cpu'),
+                        labels=target[i]['labels'].to('cpu'),
+                    ))
 
-    if not metric_updated:
-        if debug_mode:
-             print("DEBUG: Wylosowane próbki walidacyjne nie zawierały obiektów.")
-        return 0.0
+                # Aktualizacja metryki (torchmetrics obsługuje listy słowników)
+                # Sprawdzamy czy są jakiekolwiek obiekty w targetach w całym batchu
+                has_objects = any(t['boxes'].shape[0] > 0 for t in targets_list)
+                
+                if has_objects:
+                    metric.update(preds, targets_list)
+                    metric_updated = True
+
     
+    if debug_mode and not metric_updated:
+         print("DEBUG: Wylosowane próbki walidacyjne nie zawierały obiektów.")
+         return 0.0
+    
+    if not metric_updated:
+        return 0.0
+
     result = metric.compute()
     return result['map_50'].item() # Zwracamy mAP dla progu IoU=0.5
 
@@ -116,17 +127,19 @@ def train(args):
 
     train_loader = DataLoader(
         train_subset, 
-        batch_size=1, 
+        batch_size=16, 
         shuffle=True, 
         num_workers=2, 
-        pin_memory=True
+        pin_memory=True,
+        collate_fn=collate_fn
     )
     val_loader = DataLoader(
         val_subset, 
-        batch_size=1, 
+        batch_size=16, 
         shuffle=False, 
         num_workers=2, 
-        pin_memory=True
+        pin_memory=True,
+        collate_fn=collate_fn
     )
 
     # Inicjalizacja modelu Faster R-CNN
@@ -166,32 +179,36 @@ def train(args):
         
         with tqdm(train_loader, desc=f"Epoka {i+1}/{num_epochs}") as pbar:
             for step, (im, target, fname) in enumerate(pbar):            
-                # --- DEBUG MODE: Przerwij pętlę treningową po 10 krokach ---
                 if args.debug and step >= 10:
                     early_stop_triggered = True
                     break
-                im = im.float().to(device, non_blocking=True)
-                target['bboxes'] = target['bboxes'].float().to(device, non_blocking=True)
-                target['labels'] = target['labels'].long().to(device, non_blocking=True)
                 
-                # Przejście przez model i obliczenie strat
+                images = list(image.float().to(device) for image in im)
+                
+                targets = []
+                for t in target:
+                    d = {}
+                    for k, v in t.items():
+                        if k == 'labels':
+                            d[k] = v.long().to(device)
+                        else:
+                            d[k] = v.float().to(device)
+                    targets.append(d)
+                
                 with torch.amp.autocast('cuda'):
-                    rpn_output, frcnn_output = faster_rcnn_model(im, target)
+                    rpn_output, frcnn_output = faster_rcnn_model(images, targets)
                     
                     rpn_loss = rpn_output['rpn_classification_loss'] + rpn_output['rpn_localization_loss']
                     frcnn_loss = frcnn_output['frcnn_classification_loss'] + frcnn_output['frcnn_localization_loss']
                     loss = rpn_loss + frcnn_loss
                     
-                    # Normalizacja straty dla akumulacji
                     loss = loss / acc_steps
                 
-                # Zapisywanie danych do statystyk
                 rpn_cls_losses.append(rpn_output['rpn_classification_loss'].item())
                 rpn_loc_losses.append(rpn_output['rpn_localization_loss'].item())
                 frcnn_cls_losses.append(frcnn_output['frcnn_classification_loss'].item())
                 frcnn_loc_losses.append(frcnn_output['frcnn_localization_loss'].item())
                 
-                # Akumulacja gradientów, skalowanie aby nie zgubić małych gradientów
                 scaler.scale(loss).backward()
                 
                 if (step + 1) % acc_steps == 0:

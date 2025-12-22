@@ -2,11 +2,11 @@ dataset_params:
   root_path: 'dataset/RDD2022'
   countries: ['China_Drone', 'China_MotorBike', 'Czech', 'India', 'Japan', 'Norway', 'United_States']
   class_mapping:
-    'tlo': 0
-    'PPD': 1 # Pęknięcie podłuzne
-    'PPP': 2 # Pęknięcie poprzeczne
-    'PS': 3 # Pęknięcie siatkowe
-    'WY': 4 # Wybój
+    'BG': 0
+    'D00': 1 # Pęknięcie podłuzne
+    'D10': 2 # Pęknięcie poprzeczne
+    'D20': 3 # Pęknięcie siatkowe
+    'D40': 4 # Wybój
   num_classes : 5
 
 model_params:
@@ -40,8 +40,8 @@ train_params:
   task_name: 'results'
   seed : 1111
   train_val_ratio : 0.8
-  acc_steps : 16
-  num_epochs: 20
+  acc_steps : 1
+  num_epochs: 10
   lr_steps : [12, 16]
   lr: 0.001
   early_stopping_patience: 5
