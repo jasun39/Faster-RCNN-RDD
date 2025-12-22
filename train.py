@@ -10,6 +10,7 @@ from torch.utils.data.dataloader import DataLoader
 from torch.utils.data import random_split
 from torch.optim.lr_scheduler import MultiStepLR
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
+from torch.cuda.amp import GradScaler, autocast
 
 from model.faster_rcnn import FasterRCNN
 from voc import VOCDataset
@@ -32,9 +33,10 @@ def validate(model, dataloader, device, debug_mode=False):
                     early_stop_triggered = True
                     break
             
-            im = im.float().to(device)
+            im = im.float().to(device, non_blocking=True)
             # Uzyskanie predykcji (w trybie eval model zwraca przefiltrowane ramki)
-            rpn_output, frcnn_output = model(im)
+            with autocast():
+                rpn_output, frcnn_output = model(im)
             
             # Przygotowanie wyników do formatu torchmetrics
             preds = [
@@ -113,8 +115,20 @@ def train(args):
 
     train_subset, val_subset = random_split(train_dataset, [train_config['train_val_ratio'], 1-train_config['train_val_ratio']], generator=generator)
 
-    train_loader = DataLoader(train_subset, batch_size=1, shuffle=True, num_workers=4)
-    val_loader = DataLoader(val_subset, batch_size=1, shuffle=False, num_workers=4)
+    train_loader = DataLoader(
+        train_subset, 
+        batch_size=1, 
+        shuffle=True, 
+        num_workers=2, 
+        pin_memory=True
+    )
+    val_loader = DataLoader(
+        val_subset, 
+        batch_size=1, 
+        shuffle=False, 
+        num_workers=2, 
+        pin_memory=True
+    )
 
     # Inicjalizacja modelu Faster R-CNN
     faster_rcnn_model = FasterRCNN(model_config, num_classes=dataset_config['num_classes'])
@@ -123,7 +137,10 @@ def train(args):
     # Przygotowanie folderu na wyniki treningu
     if not os.path.exists(train_config['task_name']):
         os.mkdir(train_config['task_name'])
-        
+    
+    #Inicjalizacja Scalera do Mixed Precision
+    scaler = GradScaler()
+
     # Konfiguracja optymalizatora i harmonogramu uczenia
     optimizer = torch.optim.SGD(
         lr=train_config['lr'],
@@ -154,16 +171,20 @@ def train(args):
                 if args.debug and step >= 10:
                     early_stop_triggered = True
                     break
-                im = im.float().to(device)
-                target['bboxes'] = target['bboxes'].float().to(device)
-                target['labels'] = target['labels'].long().to(device)
+                im = im.float().to(device, non_blocking=True)
+                target['bboxes'] = target['bboxes'].float().to(device, non_blocking=True)
+                target['labels'] = target['labels'].long().to(device, non_blocking=True)
                 
                 # Przejście przez model i obliczenie strat
-                rpn_output, frcnn_output = faster_rcnn_model(im, target)
-                
-                rpn_loss = rpn_output['rpn_classification_loss'] + rpn_output['rpn_localization_loss']
-                frcnn_loss = frcnn_output['frcnn_classification_loss'] + frcnn_output['frcnn_localization_loss']
-                loss = rpn_loss + frcnn_loss
+                with autocast():
+                    rpn_output, frcnn_output = faster_rcnn_model(im, target)
+                    
+                    rpn_loss = rpn_output['rpn_classification_loss'] + rpn_output['rpn_localization_loss']
+                    frcnn_loss = frcnn_output['frcnn_classification_loss'] + frcnn_output['frcnn_localization_loss']
+                    loss = rpn_loss + frcnn_loss
+                    
+                    # Normalizacja straty dla akumulacji
+                    loss = loss / acc_steps
                 
                 # Zapisywanie danych do statystyk
                 rpn_cls_losses.append(rpn_output['rpn_classification_loss'].item())
@@ -171,11 +192,12 @@ def train(args):
                 frcnn_cls_losses.append(frcnn_output['frcnn_classification_loss'].item())
                 frcnn_loc_losses.append(frcnn_output['frcnn_localization_loss'].item())
                 
-                # Akumulacja gradientów
-                (loss / acc_steps).backward()
+                # Akumulacja gradientów, skalowanie aby nie zgubić małych gradientów
+                scaler.scale(loss).backward()
                 
                 if (step + 1) % acc_steps == 0:
-                    optimizer.step()
+                    scaler.step(optimizer)
+                    scaler.update()
                     optimizer.zero_grad()
         
         if early_stop_triggered:

@@ -11,8 +11,8 @@ dataset_params:
 
 model_params:
   im_channels : 3
-  aspect_ratios: [0.5, 1, 2]
-  scales: [128, 256, 512]
+  aspect_ratios: [1, 1.5, 2]
+  scales: [32, 64, 128, 256, 512]
   min_im_size : 640
   max_im_size : 1280
   backbone_out_channels : 2048 # Dla ResNet50, dla VGG16 512
@@ -32,7 +32,7 @@ model_params:
   roi_nms_threshold : 0.3
   roi_topk_detections : 100
   roi_score_threshold : 0.05
-  roi_batch_size : 128
+  roi_batch_size : 256
   roi_pos_fraction : 0.25
   roi_pool_size : 7
 
@@ -40,7 +40,7 @@ train_params:
   task_name: 'results'
   seed : 1111
   train_val_ratio : 0.8
-  acc_steps : 1 
+  acc_steps : 16
   num_epochs: 20
   lr_steps : [12, 16]
   lr: 0.001
