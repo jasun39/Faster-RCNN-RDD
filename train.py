@@ -10,6 +10,7 @@ from torch.utils.data.dataloader import DataLoader
 from torch.utils.data import random_split
 from torch.optim.lr_scheduler import MultiStepLR
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
+from torch.utils.tensorboard import SummaryWriter
 
 from model.faster_rcnn import FasterRCNN
 from voc import VOCDataset
@@ -150,6 +151,9 @@ def train(args):
     if not os.path.exists(train_config['task_name']):
         os.mkdir(train_config['task_name'])
     
+    # Inicjalizacja TensorBoard
+    writer = SummaryWriter(log_dir=os.path.join(train_config['task_name'], 'runs'))
+
     #Inicjalizacja Scalera do Mixed Precision
     scaler = torch.amp.GradScaler('cuda')
 
@@ -212,6 +216,12 @@ def train(args):
                 scaler.scale(loss).backward()
                 
                 if (step + 1) % acc_steps == 0:
+                    global_step = i * len(train_loader) + step
+                    writer.add_scalar('Loss/Total', loss.item() * acc_steps, global_step)
+                    writer.add_scalar('Loss/RPN_Class', rpn_output['rpn_classification_loss'].item(), global_step)
+                    writer.add_scalar('Loss/RPN_Box', rpn_output['rpn_localization_loss'].item(), global_step)
+                    writer.add_scalar('Loss/FRCNN_Class', frcnn_output['frcnn_classification_loss'].item(), global_step)
+                    writer.add_scalar('Loss/FRCNN_Box', frcnn_output['frcnn_localization_loss'].item(), global_step)
                     scaler.step(optimizer)
                     scaler.update()
                     optimizer.zero_grad()
@@ -227,7 +237,10 @@ def train(args):
         # Etap walidacji (mAP)
         print("Rozpoczynanie walidacji...")
         current_map = validate(faster_rcnn_model, val_loader, device, debug_mode=args.debug)
-        print(f'mAP@50 na zbiorze walidacyjnym: {current_map:.4f}')
+        # Po zakończeniu walidacji
+        writer.add_scalar('Metrics/mAP_50', current_map, i)
+        writer.add_scalar('Params/Learning_Rate', optimizer.param_groups[0]['lr'], i)
+        #print(f'mAP@50 na zbiorze walidacyjnym: {current_map:.4f}')
 
         # Sprawdzenie warunków wczesnego zatrzymania
         if current_map > best_map:
@@ -252,6 +265,7 @@ def train(args):
 
         scheduler.step()
         
+    writer.close()
     print('\nProces treningowy zakończony.')
 
 if __name__ == '__main__':

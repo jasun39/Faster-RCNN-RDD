@@ -5,13 +5,13 @@ channels:
   - defaults
 dependencies:
   - python=3.9
-  - pytorch
-  - torchvision
-  - pytorch-cuda=11.7        # Wersja CUDA pasująca do RTX 3070 (seria 30xx)
-  - numpy
+  - pip
+  - numpy=1.26.4
   - pyyaml
   - tqdm
   - pillow
-  - pip
   - pip:
     - torchmetrics
+    - --extra-index-url https://download.pytorch.org/whl/cu118
+    - torch==2.0.1+cu118
+    - torchvision==0.15.2+cu118
