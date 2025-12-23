@@ -20,7 +20,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def collate_fn(batch):
     return tuple(zip(*batch))
 
-def validate(model, dataloader, device, debug_mode=False):
+def validate(model, dataloader, val_config, device, debug_mode=False):
     r"""
     Przeprowadza walidację na zbiorze walidacyjnym i oblicza metrykę mAP.
     Przenosi dane na CPU, aby uniknąć błędów pamięci VRAM podczas akumulacji wyników.
@@ -40,21 +40,20 @@ def validate(model, dataloader, device, debug_mode=False):
                 images = list(image.float().to(device) for image in im)
                 
                 # Uzyskanie predykcji
-                with torch.amp.autocast('cuda'):
+                with torch.cuda.amp.autocast():
                     _, frcnn_output = model(images)
                 
                 preds = []
                 targets_list = []
                 
                 # frcnn_output['boxes'] jest listą o długości batch_size
-                batch_size_current = len(frcnn_output['boxes'])
-                
-                for i in range(batch_size_current):
+                for i in range(len(frcnn_output['boxes'])):
                     # Przygotowanie predykcji dla i-tego zdjęcia
+                    keep = frcnn_output['scores'][i] > val_config['score_threshold']
                     preds.append(dict(
-                        boxes=frcnn_output['boxes'][i].to('cpu'),
-                        scores=frcnn_output['scores'][i].to('cpu'),
-                        labels=frcnn_output['labels'][i].to('cpu'),
+                        boxes=frcnn_output['boxes'][i][keep].to('cpu'),
+                        scores=frcnn_output['scores'][i][keep].to('cpu'),
+                        labels=frcnn_output['labels'][i][keep].to('cpu'),
                     ))
                     
                     # Przygotowanie targetu dla i-tego zdjęcia
@@ -94,6 +93,7 @@ def train(args):
     dataset_config = config['dataset_params']
     model_config = config['model_params']
     train_config = config['train_params']
+    val_config = config['validation_params']
 
     # --- DEBUG MODE: Nadpisanie parametrów ---
     if args.debug:
@@ -130,15 +130,15 @@ def train(args):
         train_subset, 
         batch_size=train_config['batch_size'], 
         shuffle=True, 
-        num_workers=2, 
+        num_workers=4, 
         pin_memory=True,
         collate_fn=collate_fn
     )
     val_loader = DataLoader(
         val_subset, 
-        batch_size=train_config['batch_size'], 
+        batch_size=val_config['batch_size'], 
         shuffle=False, 
-        num_workers=2, 
+        num_workers=0, 
         pin_memory=True,
         collate_fn=collate_fn
     )
@@ -155,7 +155,7 @@ def train(args):
     writer = SummaryWriter(log_dir=os.path.join(train_config['task_name'], 'runs'))
 
     #Inicjalizacja Scalera do Mixed Precision
-    scaler = torch.amp.GradScaler('cuda')
+    scaler = torch.cuda.amp.GradScaler()
 
     # Konfiguracja optymalizatora i harmonogramu uczenia
     optimizer = torch.optim.SGD(
@@ -199,7 +199,7 @@ def train(args):
                             d[k] = v.float().to(device)
                     targets.append(d)
                 
-                with torch.amp.autocast('cuda'):
+                with torch.cuda.amp.autocast():
                     rpn_output, frcnn_output = faster_rcnn_model(images, targets)
                     
                     rpn_loss = rpn_output['rpn_classification_loss'] + rpn_output['rpn_localization_loss']
@@ -236,7 +236,9 @@ def train(args):
         
         # Etap walidacji (mAP)
         print("Rozpoczynanie walidacji...")
-        current_map = validate(faster_rcnn_model, val_loader, device, debug_mode=args.debug)
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+        current_map = validate(faster_rcnn_model, val_loader, val_config, device, debug_mode=args.debug)
         # Po zakończeniu walidacji
         writer.add_scalar('Metrics/mAP_50', current_map, i)
         writer.add_scalar('Params/Learning_Rate', optimizer.param_groups[0]['lr'], i)
@@ -264,7 +266,7 @@ def train(args):
             break
 
         scheduler.step()
-        
+
     writer.close()
     print('\nProces treningowy zakończony.')
 

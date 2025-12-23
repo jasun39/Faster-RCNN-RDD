@@ -40,7 +40,7 @@ class VOCDataset(Dataset):
                     elif split == 'train' and os.path.exists(ann_path):
                         self.images_data.append({'img_path': img_path, 'ann_path': ann_path})
             
-            print(f"Pominięto {skip_count} w zbiorze {country}")
+            #print(f"Pominięto {skip_count} w zbiorze {country}")
 
     def __len__(self):
         return len(self.images_data)

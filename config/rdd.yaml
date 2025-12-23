@@ -40,7 +40,7 @@ train_params:
   task_name: 'results'
   seed : 1111
   train_val_ratio : 0.8
-  batch_size : 16
+  batch_size : 8
   acc_steps : 1
   num_epochs: 10
   lr_steps : [12, 16]
@@ -48,3 +48,8 @@ train_params:
   early_stopping_patience: 5
   iou_threshold_map: 0.5
   ckpt_name: 'faster_rcnn_rdd.pth'
+
+validation_params:
+  max_val_images: 200
+  batch_size: 1
+  score_threshold: 0.15
