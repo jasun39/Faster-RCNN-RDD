@@ -13,6 +13,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from torch_utils.engine import train_one_epoch, evaluate
 from utils.general import Averager, SaveBestModel, save_model, collate_fn
+from utils.logging import csv_log
 from models.create_fasterrcnn_model import create_model
 from datasets import CustomDataset
 
@@ -44,6 +45,53 @@ def train(args):
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
+    # --- BLOK TRYBU DEBUG ---
+    if args.debug:
+        print("\n" + "="*40)
+        print(" URUCHAMIANIE W TRYBIE DEBUG")
+        print("="*40)
+
+        # 1. Sprawdzenie poprawności tworzenia datasetu (Smoke Test)
+        try:
+            print("1. Weryfikacja próbki danych...")
+            # Pobieramy 1. element (zwraca: img_tensor, target_dict, path)
+            sample_img, sample_target = dataset[0]
+            
+            print(f"   - Kształt obrazu: {sample_img.shape}")
+            print(f"   - Klucze targetu: {list(sample_target.keys())}")
+            
+            if 'boxes' in sample_target:
+                print(f"   - Liczba ramek: {len(sample_target['boxes'])}")
+                if len(sample_target['boxes']) > 0:
+                    print(f"   - Przykładowa ramka: {sample_target['boxes'][0]}")
+            
+            print("   -> Dataset działa poprawnie.\n")
+        except Exception as e:
+            print(f"\n!!! BŁĄD PODCZAS TWORZENIA DATASETU: {e}")
+            raise e
+
+        # 2. Ograniczenie danych do 10 kroków
+        # 10 kroków * batch_size = liczba potrzebnych próbek
+        debug_samples = 1 * train_config['batch_size']
+        
+        # Upewniamy się, że nie żądamy więcej próbek niż mamy
+        debug_samples_train = min(len(train_dataset), debug_samples)
+        debug_samples_val = min(len(val_dataset), debug_samples)
+
+        print(f"2. Przycinanie datasetów do 10 kroków ({train_config['batch_size']} img/batch)...")
+        # Tworzymy podzbiory (Subset)
+        train_dataset = torch.utils.data.Subset(train_dataset, range(debug_samples_train))
+        val_dataset = torch.utils.data.Subset(val_dataset, range(debug_samples_val))
+        
+        print(f"   - Nowy rozmiar train: {len(train_dataset)} próbek")
+        print(f"   - Nowy rozmiar val:   {len(val_dataset)} próbek")
+
+        # 3. Wymuszenie 1 epoki (Early Stop po walidacji)
+        args.epochs = 1
+        print("3. Liczba epok ustawiona na 1 (Early Stop po zakończeniu walidacji).")
+        print("="*40 + "\n")
+    # ------------------------
+
     train_loader = DataLoader(
         train_dataset, 
         batch_size=train_config['batch_size'], 
@@ -63,7 +111,6 @@ def train(args):
     # Model
     build_model = create_model['fasterrcnn_resnet50_fpn']
     model = build_model(num_classes=dataset_config['num_classes'], pretrained=True)
-    #model = create_model['fasterrcnn_resnet50_fpn'](num_classes=5, pretrained=True)
     model.to(device)
 
     # Optymalizator
@@ -98,11 +145,12 @@ def train(args):
 
         # TRENING (z Warmupem wewnątrz)
         # Funkcja zwraca krotkę strat, ale aktualizuje też train_loss_hist
-        _, batch_loss_list, \
-            batch_loss_cls_list, \
-            batch_loss_box_reg_list, \
-            batch_loss_objectness_list, \
-            batch_loss_rpn_list = train_one_epoch(
+        metric_logger, \
+        batch_loss_list, \
+        batch_loss_cls_list, \
+        batch_loss_box_reg_list, \
+        batch_loss_objectness_list, \
+        batch_loss_rpn_list = train_one_epoch(
             model, 
             optimizer, 
             train_loader, 
@@ -125,6 +173,17 @@ def train(args):
         stats = coco_evaluator.coco_eval['bbox'].stats
         mAP = stats[0]    # mAP @ 0.5:0.95
         mAP50 = stats[1]  # mAP @ 0.5
+
+        csv_log(
+            log_dir=os.path.join("runs", train_config['task_name']), # lub inna ścieżka
+            stats=stats,
+            epoch=epoch,
+            train_loss_list=[train_loss_hist.value], # Uśredniony loss
+            loss_cls_list=[np.mean(batch_loss_cls_list)],
+            loss_box_reg_list=[np.mean(batch_loss_box_reg_list)],
+            loss_objectness_list=[np.mean(batch_loss_objectness_list)],
+            loss_rpn_list=[np.mean(batch_loss_rpn_list)]
+        )
 
         print(f"Epoka {epoch+1} zakończona. mAP: {mAP:.4f}, mAP50: {mAP50:.4f}, Loss: {train_loss_hist.value:.4f}")
 

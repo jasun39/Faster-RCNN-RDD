@@ -45,51 +45,60 @@ class CustomDataset(Dataset):
     def __len__(self):
         return len(self.images_data)
 
-    def __getitem__(self, idx):
-        data = self.images_data[idx]
+    def __getitem__(self, index):
+        data = self.images_data[index]
         img = Image.open(data['img_path']).convert("RGB")
         img_tensor = F.to_tensor(img)
-        
-        if self.split == 'test' or data['ann_path'] is None:
-            target = {
-                'boxes': torch.zeros((0, 4), dtype=torch.float32),
-                'labels': torch.zeros((0,), dtype=torch.int64)
-            }
-            return img_tensor, target
 
-        # Parsowanie pliku XML z adnotacjami
-        tree = ET.parse(data['ann_path'])
-        root = tree.getroot()
-        
         boxes = []
         labels = []
         
-        for obj in root.findall('object'):
-            label_name = obj.find('name').text
-            if label_name not in self.class_mapping:
-                continue
-                
-            # Pobieranie współrzędnych ramki (xmin, ymin, xmax, ymax)
-            xmlbox = obj.find('bndbox')
-            bbox = [
-                float(xmlbox.find('xmin').text),
-                float(xmlbox.find('ymin').text),
-                float(xmlbox.find('xmax').text),
-                float(xmlbox.find('ymax').text)
-            ]
+        # Sprawdzenie czy plik adnotacji istnieje
+        if os.path.exists(data['ann_path']):
+            tree = ET.parse(data['ann_path'])
+            root = tree.getroot()
             
-            boxes.append(bbox)
-            labels.append(self.class_mapping[label_name])
-            
-        # Przygotowanie słownika target zgodnie z wymaganiami pętli treningowej
-        target = {
-            'boxes': torch.as_tensor(boxes, dtype=torch.float32),
-            'labels': torch.as_tensor(labels, dtype=torch.int64)
-        }
+            for obj in root.findall('object'):
+                label_name = obj.find('name').text
+                if label_name not in self.class_mapping:
+                    continue
+                    
+                xmlbox = obj.find('bndbox')
+                bbox = [
+                    float(xmlbox.find('xmin').text),
+                    float(xmlbox.find('ymin').text),
+                    float(xmlbox.find('xmax').text),
+                    float(xmlbox.find('ymax').text)
+                ]
+                boxes.append(bbox)
+                labels.append(self.class_mapping[label_name])
+
+        # Konwersja na Tensory i obliczanie Area/Iscrowd (wg wzorca)
         
-        # Jeśli obraz nie ma żadnych ramek, dodajemy ramkę "pustą" (wymagane technicznie)
-        if len(boxes) == 0:
-            target['boxes'] = torch.zeros((0, 4), dtype=torch.float32)
-            target['labels'] = torch.zeros((0,), dtype=torch.int64)
+        # Najpierw konwersja list na tensory
+        boxes_tensor = torch.as_tensor(boxes, dtype=torch.float32)
+        labels_tensor = torch.as_tensor(labels, dtype=torch.int64)
+        
+        # Sprawdzenie długości (czy są jakiekolwiek obiekty)
+        if len(boxes) > 0:
+            # Obliczanie pola powierzchni: (xmax-xmin) * (ymax-ymin)
+            # Indeksy: 0=xmin, 1=ymin, 2=xmax, 3=ymax
+            area = (boxes_tensor[:, 2] - boxes_tensor[:, 0]) * (boxes_tensor[:, 3] - boxes_tensor[:, 1])
+            iscrowd = torch.zeros((boxes_tensor.shape[0],), dtype=torch.int64)
+        else:
+            # Obsługa pustych ramek - puste tensory o odpowiednich typach
+            area = torch.as_tensor([], dtype=torch.float32)
+            iscrowd = torch.as_tensor([], dtype=torch.int64)
+            # Wymuszamy kształt (0, 4) dla pustego tensora ramek, żeby model nie zgłaszał błędu
+            boxes_tensor = boxes_tensor.reshape(-1, 4)
+
+        # Przygotowanie słownika target
+        target = {
+            'boxes': boxes_tensor,
+            'labels': labels_tensor,
+            'image_id': torch.tensor([index]), # Wymagane przez COCO eval
+            'area': area,
+            'iscrowd': iscrowd
+        }
 
         return img_tensor, target

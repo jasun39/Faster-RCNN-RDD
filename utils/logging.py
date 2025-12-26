@@ -1,4 +1,5 @@
 import logging
+import pandas as pd
 
 from torch.utils.tensorboard.writer import SummaryWriter
 
@@ -22,6 +23,52 @@ def log(content, *args):
     for arg in args:
         content += str(arg)
     logger.info(content)
+
+def csv_log(
+    log_dir, 
+    stats, 
+    epoch,
+    train_loss_list,
+    loss_cls_list,
+    loss_box_reg_list,
+    loss_objectness_list,
+    loss_rpn_list
+):
+    if epoch+1 == 1:
+        create_log_csv(log_dir) 
+    
+    df = pd.DataFrame(
+        {
+            'epoch': int(epoch+1),
+            'map_05': [float(stats[0])],
+            'map': [float(stats[1])],
+            'train loss': train_loss_list[-1],
+            'train cls loss': loss_cls_list[-1],
+            'train box reg loss': loss_box_reg_list[-1],
+            'train obj loss': loss_objectness_list[-1],
+            'train rpn loss': loss_rpn_list[-1]
+        }
+    )
+    df.to_csv(
+        os.path.join(log_dir, 'results.csv'), 
+        mode='a', 
+        index=False, 
+        header=False
+    )
+
+def create_log_csv(log_dir):
+    cols = [
+        'epoch', 
+        'map', 
+        'map_05',
+        'train loss',
+        'train cls loss',
+        'train box reg loss',
+        'train obj loss',
+        'train rpn loss'
+    ]
+    results_csv = pd.DataFrame(columns=cols)
+    results_csv.to_csv(os.path.join(log_dir, 'results.csv'), index=False)
 
 def coco_log(log_dir, stats):
     log_dict_keys = [
@@ -49,10 +96,6 @@ def coco_log(log_dir, stats):
             logger.debug(out_str) # DEBUG model so as not to print on console.
         logger.debug('\n'*2) # DEBUG model so as not to print on console.
     # f.close()
-
-def set_summary_writer(log_dir):
-    writer = SummaryWriter(log_dir=log_dir)
-    return writer
 
 def tensorboard_loss_log(name, loss_np_arr, writer, epoch):
     """

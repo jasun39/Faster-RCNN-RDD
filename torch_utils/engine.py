@@ -46,7 +46,8 @@ def train_one_epoch(
     step_counter = 0
     # AMP Autocast does not accepts torch deivce, string only.
     amp_device = 'cuda' if device == 'cuda' else 'cpu'
-    for images, targets in metric_logger.log_every(data_loader, print_freq, header):
+    pbar = tqdm(data_loader, desc=header, unit="batch")
+    for images, targets in pbar:
         step_counter += 1
         images = list(image.to(device) for image in images)
         targets = [{k: v.to(device).to(torch.int64) for k, v in t.items()} for t in targets]
@@ -92,6 +93,11 @@ def train_one_epoch(
         if scheduler is not None:
             scheduler.step(epoch + (step_counter/len(data_loader)))
 
+        pbar.set_postfix({
+            "loss": f"{loss_value:.4f}", 
+            "lr": f"{optimizer.param_groups[0]['lr']:.6f}"
+        })
+
     return (
         metric_logger, 
         batch_loss_list, 
@@ -135,7 +141,8 @@ def evaluate(
     coco_evaluator = CocoEvaluator(coco, iou_types)
 
     counter = 0
-    for images, targets in metric_logger.log_every(data_loader, 100, header):
+    pbar = tqdm(data_loader, desc=header, unit="batch")
+    for images, targets in pbar:
         counter += 1
         images = list(img.to(device) for img in images)
 
