@@ -1,6 +1,7 @@
 # Wykluczenie folderu z notebookami
 notebooks/
 RDD2022/
+runs/
 # Wykluczenie plików wag
 *.pth
 *.pt

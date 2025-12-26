@@ -6,7 +6,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 import torchvision.transforms.functional as F
 
-class VOCDataset(Dataset):
+class CustomDataset(Dataset):
     r"""
     Klasa obsługująca zbiór RDD2022. Automatycznie przeszukuje foldery krajów 
     w poszukiwaniu zdjęć i adnotacji XML.
@@ -52,16 +52,16 @@ class VOCDataset(Dataset):
         
         if self.split == 'test' or data['ann_path'] is None:
             target = {
-                'bboxes': torch.zeros((0, 4), dtype=torch.float32),
+                'boxes': torch.zeros((0, 4), dtype=torch.float32),
                 'labels': torch.zeros((0,), dtype=torch.int64)
             }
-            return img_tensor, target, data['img_path']
+            return img_tensor, target
 
         # Parsowanie pliku XML z adnotacjami
         tree = ET.parse(data['ann_path'])
         root = tree.getroot()
         
-        bboxes = []
+        boxes = []
         labels = []
         
         for obj in root.findall('object'):
@@ -78,18 +78,18 @@ class VOCDataset(Dataset):
                 float(xmlbox.find('ymax').text)
             ]
             
-            bboxes.append(bbox)
+            boxes.append(bbox)
             labels.append(self.class_mapping[label_name])
             
         # Przygotowanie słownika target zgodnie z wymaganiami pętli treningowej
         target = {
-            'bboxes': torch.as_tensor(bboxes, dtype=torch.float32),
+            'boxes': torch.as_tensor(boxes, dtype=torch.float32),
             'labels': torch.as_tensor(labels, dtype=torch.int64)
         }
         
         # Jeśli obraz nie ma żadnych ramek, dodajemy ramkę "pustą" (wymagane technicznie)
-        if len(bboxes) == 0:
-            target['bboxes'] = torch.zeros((0, 4), dtype=torch.float32)
+        if len(boxes) == 0:
+            target['boxes'] = torch.zeros((0, 4), dtype=torch.float32)
             target['labels'] = torch.zeros((0,), dtype=torch.int64)
 
-        return img_tensor, target, data['img_path']
+        return img_tensor, target

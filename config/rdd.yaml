@@ -9,33 +9,6 @@ dataset_params:
     'D40': 4 # Wybój
   num_classes : 5
 
-model_params:
-  im_channels : 3
-  aspect_ratios: [1, 1.5, 2]
-  scales: [32, 64, 128, 256, 512]
-  min_im_size : 512
-  max_im_size : 800
-  backbone_out_channels : 512 # Dla ResNet50 2048, dla ResNet18 512
-  fc_inner_dim : 1024
-  rpn_bg_threshold : 0.3
-  rpn_fg_threshold : 0.7
-  rpn_nms_threshold : 0.7
-  rpn_train_prenms_topk : 12000
-  rpn_test_prenms_topk : 6000
-  rpn_train_topk : 2000
-  rpn_test_topk : 300
-  rpn_batch_size : 256
-  rpn_pos_fraction : 0.5
-  roi_iou_threshold : 0.5
-  roi_low_bg_iou : 0.0 
-  roi_pool_size : 7
-  roi_nms_threshold : 0.3
-  roi_topk_detections : 100
-  roi_score_threshold : 0.05
-  roi_batch_size : 256
-  roi_pos_fraction : 0.25
-  roi_pool_size : 7
-
 train_params:
   task_name: 'results'
   seed : 1111
