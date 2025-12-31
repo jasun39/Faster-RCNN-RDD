@@ -29,6 +29,12 @@ def train(args):
     val_config = config['validation_params']
     dataset_config = config['dataset_params']
 
+    np.random.seed(47)
+    class_mapping = dataset_config['class_mapping']
+    id_to_name = {v: k for k, v in class_mapping.items()}
+    classes = [id_to_name[i] for i in range(len(id_to_name))]
+    colors = np.random.randint(0, 255, size=(len(classes), 3)).tolist()
+
     print(f"Konfiguracja wczytana: {train_config['task_name']}")
 
     # Przygotowanie datasetu
@@ -39,11 +45,10 @@ def train(args):
         split='train'
     )
 
-    # Podział na train/val (jeśli robisz to dynamicznie, a nie z plików folderów)
-    # Sugeruję używać oddzielnych folderów jak w configu RDD, ale tu zostawiam Twoją logikę:
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    generator = torch.Generator().manual_seed(train_config['seed'])
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size], generator)
 
     # --- BLOK TRYBU DEBUG ---
     if args.debug:
@@ -72,7 +77,7 @@ def train(args):
 
         # 2. Ograniczenie danych do 10 kroków
         # 10 kroków * batch_size = liczba potrzebnych próbek
-        debug_samples = 1 * train_config['batch_size']
+        debug_samples = 10 * train_config['batch_size']
         
         # Upewniamy się, że nie żądamy więcej próbek niż mamy
         debug_samples_train = min(len(train_dataset), debug_samples)
@@ -109,7 +114,7 @@ def train(args):
     )
 
     # Model
-    build_model = create_model['fasterrcnn_resnet50_fpn']
+    build_model = create_model['fasterrcnn_resnet18']
     model = build_model(num_classes=dataset_config['num_classes'], pretrained=True)
     model.to(device)
 
@@ -158,7 +163,8 @@ def train(args):
             epoch, 
             train_loss_hist,
             print_freq=50,
-            scheduler=None # Możesz tu przekazać lr_scheduler jeśli używasz CosineAnnealing, dla MultiStepLR robimy step() ręcznie niżej
+            scheduler=None, # Możesz tu przekazać lr_scheduler jeśli używasz CosineAnnealing, dla MultiStepLR robimy step() ręcznie niżej
+            acc_steps=train_config['acc_steps']
         )
 
         # Aktualizacja głównego schedulera
@@ -167,22 +173,30 @@ def train(args):
         # EWALUACJA (Obliczanie mAP)
         # Funkcja evaluate korzysta z pycocotools (poprzez torch_utils)
         # Zwraca stats: [AP50:95, AP50, AP75, AP_S, AP_M, AP_L, ...]
-        coco_evaluator, _ = evaluate(model, val_loader, device=device)
+        stats, _ = evaluate(model, val_loader, device=device, save_valid_preds=True, out_dir=os.path.join('runs','pictures'), classes=classes, colors=colors)
         
+        train_loss_list.extend(batch_loss_list)
+        loss_cls_list.append(np.mean(np.array(batch_loss_cls_list,)))
+        loss_box_reg_list.append(np.mean(np.array(batch_loss_box_reg_list)))
+        loss_objectness_list.append(np.mean(np.array(batch_loss_objectness_list)))
+        loss_rpn_list.append(np.mean(np.array(batch_loss_rpn_list)))
+
+        # Append curent epoch's average loss to `train_loss_list_epoch`.
+        train_loss_list_epoch.append(train_loss_hist.value)
         # Pobieranie wyników
-        stats = coco_evaluator.coco_eval['bbox'].stats
+        #stats = coco_evaluator.coco_eval['bbox'].stats
         mAP = stats[0]    # mAP @ 0.5:0.95
         mAP50 = stats[1]  # mAP @ 0.5
 
         csv_log(
             log_dir=os.path.join("runs", train_config['task_name']), # lub inna ścieżka
-            stats=stats,
+            stats=stats, 
             epoch=epoch,
-            train_loss_list=[train_loss_hist.value], # Uśredniony loss
-            loss_cls_list=[np.mean(batch_loss_cls_list)],
-            loss_box_reg_list=[np.mean(batch_loss_box_reg_list)],
-            loss_objectness_list=[np.mean(batch_loss_objectness_list)],
-            loss_rpn_list=[np.mean(batch_loss_rpn_list)]
+            train_loss_list=train_loss_list,
+            loss_cls_list=loss_cls_list,
+            loss_box_reg_list=loss_box_reg_list,
+            loss_objectness_list=loss_objectness_list,
+            loss_rpn_list=loss_rpn_list
         )
 
         print(f"Epoka {epoch+1} zakończona. mAP: {mAP:.4f}, mAP50: {mAP50:.4f}, Loss: {train_loss_hist.value:.4f}")
@@ -198,7 +212,7 @@ def train(args):
         # Zapisz najlepszy model
         if mAP > best_map:
             best_map = mAP
-            torch.save(model.state_dict(), os.path.join(train_config['task_name'], 'best_model.pth'))
+            torch.save(model.state_dict(), os.path.join('runs', train_config['task_name'], 'best_model.pth'))
             print(f"Zapisano nowy najlepszy model! (mAP: {best_map:.4f})")
 
         # Zapisz ostatni model (do wznawiania)
@@ -207,7 +221,7 @@ def train(args):
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'best_map': best_map,
-        }, os.path.join(train_config['task_name'], 'last_model.pth'))
+        }, os.path.join('runs', train_config['task_name'], 'last_model.pth'))
 
     writer.close()
     print('Trening zakończony.')

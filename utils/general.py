@@ -1,4 +1,7 @@
 import torch
+import numpy as np
+import cv2
+import os
 
 def collate_fn(batch):
     # Modyfikacja: bierzemy tylko obrazy i targety, ignorujemy ścieżki plików
@@ -62,9 +65,10 @@ def save_validation_results(images, detections, counter, out_dir, classes, color
     :param detections: All the detection results.
     :param counter: Step counter for saving with unique ID.
     """
+    os.makedirs(out_dir, exist_ok=True)
     IMG_MEAN = [0.485, 0.456, 0.406]
     IMG_STD = [0.229, 0.224, 0.225]
-    image_list = [] # List to store predicted images to return.
+    image_list = []
     for i, detection in enumerate(detections):
         image_c = images[i].clone()
         image_c = image_c.detach().cpu().numpy().astype(np.float32)
@@ -77,7 +81,6 @@ def save_validation_results(images, detections, counter, out_dir, classes, color
         bboxes = detection['boxes'].detach().cpu().numpy()
         boxes = bboxes[scores >= 0.5].astype(np.int32)
         image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-        # Get all the predicited class names.
         pred_classes = [classes[i] for i in labels.cpu().numpy()]
         for j, box in enumerate(boxes):
             class_name = pred_classes[j]

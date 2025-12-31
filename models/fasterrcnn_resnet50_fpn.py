@@ -19,5 +19,5 @@ def create_model(num_classes, pretrained=True, coco_model=False):
 
 if __name__ == '__main__':
     from model_summary import summary
-    model = create_model(num_classes=81, pretrained=True, coco_model=True)
+    model = create_model(num_classes=5, pretrained=True, coco_model=True)
     summary(model)

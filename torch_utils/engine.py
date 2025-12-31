@@ -20,12 +20,13 @@ def train_one_epoch(
     train_loss_hist,
     print_freq, 
     scaler=None,
-    scheduler=None
+    scheduler=None,
+    acc_steps=1
 ):
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value:.6f}"))
-    header = f"Epoch: [{epoch}]"
+    header = f"Epoka {epoch+1}"
 
     # List to store batch losses.
     batch_loss_list = []
@@ -47,7 +48,8 @@ def train_one_epoch(
     # AMP Autocast does not accepts torch deivce, string only.
     amp_device = 'cuda' if device == 'cuda' else 'cpu'
     pbar = tqdm(data_loader, desc=header, unit="batch")
-    for images, targets in pbar:
+    optimizer.zero_grad()
+    for i, (images, targets) in enumerate(pbar):
         step_counter += 1
         images = list(image.to(device) for image in images)
         targets = [{k: v.to(device).to(torch.int64) for k, v in t.items()} for t in targets]
@@ -57,28 +59,31 @@ def train_one_epoch(
             loss_dict = model(images, targets)
             losses = sum(loss for loss in loss_dict.values())
 
+            losses = losses / acc_steps
+
         # reduce losses over all GPUs for logging purposes
         loss_dict_reduced = utils.reduce_dict(loss_dict)
         losses_reduced = sum(loss for loss in loss_dict_reduced.values())
 
         loss_value = losses_reduced.item()
 
-        if not math.isfinite(loss_value):
-            print(f"Loss is {loss_value}, stopping training")
-            print(loss_dict_reduced)
-            sys.exit(1)
-
-        optimizer.zero_grad()
         if scaler is not None:
             scaler.scale(losses).backward()
-            scaler.step(optimizer)
-            scaler.update()
         else:
             losses.backward()
-            optimizer.step()
 
-        if lr_scheduler is not None:
-            lr_scheduler.step()
+        # Krok optymalizatora tylko co acc_steps
+        if (i + 1) % acc_steps == 0 or (i + 1) == len(data_loader):
+            if scaler is not None:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
+            
+            optimizer.zero_grad()
+
+            if lr_scheduler is not None:
+                lr_scheduler.step()
 
         metric_logger.update(loss=losses_reduced, **loss_dict_reduced)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
@@ -89,6 +94,8 @@ def train_one_epoch(
         batch_loss_objectness_list.append(loss_dict_reduced['loss_objectness'].detach().cpu())
         batch_loss_rpn_list.append(loss_dict_reduced['loss_rpn_box_reg'].detach().cpu())
         train_loss_hist.send(loss_value)
+
+        
 
         if scheduler is not None:
             scheduler.step(epoch + (step_counter/len(data_loader)))
@@ -129,12 +136,11 @@ def evaluate(
     colors=None
 ):
     n_threads = torch.get_num_threads()
-    # FIXME remove this and make paste_masks_in_image run on the GPU
     torch.set_num_threads(1)
     cpu_device = torch.device("cpu")
     model.eval()
     metric_logger = utils.MetricLogger(delimiter="  ")
-    header = "Test:"
+    header = "Ewaluacja"
 
     coco = get_coco_api_from_dataset(data_loader.dataset)
     iou_types = _get_iou_types(model)
@@ -160,14 +166,11 @@ def evaluate(
         evaluator_time = time.time() - evaluator_time
         metric_logger.update(model_time=model_time, evaluator_time=evaluator_time)
 
-        if save_valid_preds and counter == 1:
-            # The validation prediction image which is saved to disk
-            # is returned here which is again returned at the end of the
-            # function for WandB logging.
+        if save_valid_preds and counter < 10:
             val_saved_image = save_validation_results(
                 images, outputs, counter, out_dir, classes, colors
             )
-        elif save_valid_preds == False and counter == 1:
+        elif save_valid_preds == False and counter < 10:
             val_saved_image = np.ones((1, 64, 64, 3))
             
 

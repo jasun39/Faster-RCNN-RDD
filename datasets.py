@@ -45,6 +45,57 @@ class CustomDataset(Dataset):
     def __len__(self):
         return len(self.images_data)
 
+    def get_annotations(self, index):
+        data = self.images_data[index]
+        
+        # Szybki odczyt rozmiaru bez dekodowania pikseli
+        with Image.open(data['img_path']) as img:
+            width, height = img.size
+        
+        boxes = []
+        labels = []
+        
+        if data['ann_path'] and os.path.exists(data['ann_path']):
+            tree = ET.parse(data['ann_path'])
+            root = tree.getroot()
+            
+            for obj in root.findall('object'):
+                label_name = obj.find('name').text
+                if label_name not in self.class_mapping:
+                    continue
+                    
+                xmlbox = obj.find('bndbox')
+                bbox = [
+                    float(xmlbox.find('xmin').text),
+                    float(xmlbox.find('ymin').text),
+                    float(xmlbox.find('xmax').text),
+                    float(xmlbox.find('ymax').text)
+                ]
+                boxes.append(bbox)
+                labels.append(self.class_mapping[label_name])
+
+        boxes_tensor = torch.as_tensor(boxes, dtype=torch.float32)
+        labels_tensor = torch.as_tensor(labels, dtype=torch.int64)
+        
+        if len(boxes) > 0:
+            area = (boxes_tensor[:, 2] - boxes_tensor[:, 0]) * (boxes_tensor[:, 3] - boxes_tensor[:, 1])
+            iscrowd = torch.zeros((boxes_tensor.shape[0],), dtype=torch.int64)
+        else:
+            area = torch.as_tensor([], dtype=torch.float32)
+            iscrowd = torch.as_tensor([], dtype=torch.int64)
+            boxes_tensor = boxes_tensor.reshape(-1, 4)
+
+        target = {
+            'boxes': boxes_tensor,
+            'labels': labels_tensor,
+            'image_id': torch.tensor([index]),
+            'area': area,
+            'iscrowd': iscrowd
+        }
+        
+        # Zwracamy target ORAZ wymiary
+        return target, height, width
+
     def __getitem__(self, index):
         data = self.images_data[index]
         img = Image.open(data['img_path']).convert("RGB")
@@ -64,12 +115,16 @@ class CustomDataset(Dataset):
                     continue
                     
                 xmlbox = obj.find('bndbox')
-                bbox = [
-                    float(xmlbox.find('xmin').text),
-                    float(xmlbox.find('ymin').text),
-                    float(xmlbox.find('xmax').text),
-                    float(xmlbox.find('ymax').text)
-                ]
+                xmin = float(xmlbox.find('xmin').text)
+                ymin = float(xmlbox.find('ymin').text)
+                xmax = float(xmlbox.find('xmax').text)
+                ymax = float(xmlbox.find('ymax').text)
+
+                if (xmax - xmin) <= 0 or (ymax - ymin) <= 0:
+                    print(f"Ostrzeżenie: Ignorowanie błędnej ramki w {data['img_path']} -> {xmin, ymin, xmax, ymax}")
+                    continue
+
+                bbox = [xmin, ymin, xmax, ymax]
                 boxes.append(bbox)
                 labels.append(self.class_mapping[label_name])
 

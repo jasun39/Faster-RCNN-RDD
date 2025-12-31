@@ -2,7 +2,6 @@ import torchinfo
 import torch
 
 def summary(model):
-    # Torchvision Faster RCNN models are enclosed within a tuple ().
     if type(model) == tuple:
         model = model[0]
     device = 'cpu'

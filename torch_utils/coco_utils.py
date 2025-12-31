@@ -24,14 +24,22 @@ def convert_to_coco_api(ds):
     dataset = {"images": [], "categories": [], "annotations": []}
     categories = set()
     for img_idx in range(len(ds)):
-        # find better way to get target
-        # targets = ds.get_annotations(img_idx)
-        img, targets = ds[img_idx]
-        image_id = targets["image_id"].item()
-        img_dict = {}
-        img_dict["id"] = image_id
-        img_dict["height"] = img.shape[-2]
-        img_dict["width"] = img.shape[-1]
+        if hasattr(ds, "get_annotations"):
+            targets, h, w = ds.get_annotations(img_idx)
+            image_id = targets["image_id"].item()
+            img_dict = {}
+            img_dict["id"] = image_id
+            img_dict["height"] = h
+            img_dict["width"] = w
+        else:
+            # Stara, wolna ścieżka
+            img, targets = ds[img_idx]
+            image_id = targets["image_id"].item()
+            img_dict = {}
+            img_dict["id"] = image_id
+            img_dict["height"] = img.shape[-2]
+            img_dict["width"] = img.shape[-1]
+
         dataset["images"].append(img_dict)
         bboxes = targets["boxes"]
         if len(bboxes) > 0:

@@ -7,13 +7,16 @@ dependencies:
   - python=3.9
   - pip
   - numpy=1.26.4
+  - pandas
   - pyyaml
   - tqdm
   - pillow
   - tensorboard
   - pip:
+    - "numpy<2.0"
     - torchmetrics
     - --extra-index-url https://download.pytorch.org/whl/cu118
     - torch==2.0.1+cu118
     - torchvision==0.15.2+cu118
     - pycocotools==2.0.11
+    - opencv-python

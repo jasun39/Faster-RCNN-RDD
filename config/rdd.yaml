@@ -1,6 +1,6 @@
 dataset_params:
   root_path: 'dataset/RDD2022'
-  countries: ['China_Drone', 'China_MotorBike', 'Czech', 'India', 'Japan', 'Norway', 'United_States']
+  countries: ['China_Drone', 'China_MotorBike', 'Czech', 'India', 'Japan', 'United_States']
   class_mapping:
     'BG': 0
     'D00': 1 # Pęknięcie podłuzne
@@ -10,14 +10,14 @@ dataset_params:
   num_classes : 5
 
 train_params:
-  task_name: 'results'
+  task_name: 'test'
   seed : 1111
   train_val_ratio : 0.8
-  batch_size : 2
+  batch_size : 8
   acc_steps : 1
-  num_epochs: 1
-  lr_steps : [12, 16]
-  lr: 0.001
+  num_epochs: 10
+  lr_steps : [6, 8]
+  lr: 0.002
   early_stopping_patience: 5
   iou_threshold_map: 0.5
   ckpt_name: 'faster_rcnn_rdd.pth'
