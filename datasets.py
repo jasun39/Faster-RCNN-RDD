@@ -105,7 +105,7 @@ class CustomDataset(Dataset):
         labels = []
         
         # Sprawdzenie czy plik adnotacji istnieje
-        if os.path.exists(data['ann_path']):
+        if data['ann_path'] is not None and os.path.exists(data['ann_path']):
             tree = ET.parse(data['ann_path'])
             root = tree.getroot()
             

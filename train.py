@@ -21,7 +21,6 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def train(args):
     # Wczytanie konfiguracji z pliku YAML
-    # Wczytanie konfiguracji
     with open(args.config_path, 'r') as file:
         config = yaml.safe_load(file)
 

@@ -37,7 +37,7 @@ def create_model(num_classes, pretrained=True, coco_model=False):
     # Meaning, anchors with 5 different sizes and 3 different aspect 
     # ratios.
     anchor_generator = AnchorGenerator(
-        sizes=((16, 32, 64, 128, 256),),
+        sizes=((32, 64, 128, 256, 512),),
         aspect_ratios=((0.5, 1.0, 2.0),)
     )
 

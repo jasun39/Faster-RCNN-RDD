@@ -26,3 +26,16 @@ validation_params:
   max_val_images: 200
   batch_size: 1
   score_threshold: 0.15
+
+test_params:
+  root_path: 'dataset/RDD2022'
+  countries: ['Japan', 'United_States']
+  class_mapping:
+    'TŁO': 0
+    'PPD': 1
+    'PPP': 2
+    'PS' : 3
+    'WY' : 4
+  num_classes: 5
+  weights_path: 'runs/best_model.pth'
+  threshold: 0.1

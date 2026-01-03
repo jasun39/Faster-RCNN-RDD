@@ -9,9 +9,14 @@ def summary(model):
     channels = 3
     img_height = 640
     img_width = 640
-    torchinfo.summary(
+    return torchinfo.summary(
         model, 
         device=device, 
         input_size=[batch_size, channels, img_height, img_width],
-        row_settings=["var_names"]
+        row_settings=["var_names"],
+        col_names=["input_size",
+                "output_size",
+                "num_params",
+                "params_percent",
+                "kernel_size"]
     )

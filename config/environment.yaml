@@ -1,7 +1,7 @@
 name: rdd_env
 channels:
   - pytorch
-  - nvidia
+  - conda-forge
   - defaults
 dependencies:
   - python=3.9
@@ -13,10 +13,11 @@ dependencies:
   - pillow
   - tensorboard
   - pip:
-    - "numpy<2.0"
-    - torchmetrics
-    - --extra-index-url https://download.pytorch.org/whl/cu118
-    - torch==2.0.1+cu118
-    - torchvision==0.15.2+cu118
-    - pycocotools==2.0.11
-    - opencv-python
+      - "numpy<2.0"
+      - torchmetrics
+      - torch==2.0.1
+      - torchvision==0.15.2
+      - pycocotools==2.0.7
+      - opencv-python
+      - datasets
+      - torchinfo
