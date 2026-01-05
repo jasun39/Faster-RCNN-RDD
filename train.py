@@ -113,7 +113,7 @@ def train(args):
     )
 
     # Model
-    build_model = create_model['fasterrcnn_resnet18']
+    build_model = create_model['fasterrcnn_resnet50_fpn']
     model = build_model(num_classes=dataset_config['num_classes'], pretrained=True)
     model.to(device)
 
@@ -201,10 +201,10 @@ def train(args):
         print(f"Epoka {epoch+1} zakończona. mAP: {mAP:.4f}, mAP50: {mAP50:.4f}, Loss: {train_loss_hist.value:.4f}")
 
         # Logowanie do Tensorboard
-        writer.add_scalar('Training/Loss', train_loss_hist.value, epoch)
-        writer.add_scalar('Validation/mAP', mAP, epoch)
-        writer.add_scalar('Validation/mAP_50', mAP50, epoch)
-        writer.add_scalar('Learning_Rate', optimizer.param_groups[0]['lr'], epoch)
+        writer.add_scalar('Training/Loss', train_loss_hist.value, epoch+1)
+        writer.add_scalar('Validation/mAP', mAP, epoch+1)
+        writer.add_scalar('Validation/mAP_50', mAP50, epoch+1)
+        writer.add_scalar('Learning_Rate', optimizer.param_groups[0]['lr'], epoch+1)
 
         # ZAPISYWANIE MODELU
         

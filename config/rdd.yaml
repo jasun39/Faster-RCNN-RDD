@@ -10,13 +10,13 @@ dataset_params:
   num_classes : 5
 
 train_params:
-  task_name: 'test'
+  task_name: 'resnet_50_fpn'
   seed : 1111
   train_val_ratio : 0.8
   batch_size : 8
   acc_steps : 1
-  num_epochs: 10
-  lr_steps : [6, 8]
+  num_epochs: 20
+  lr_steps : [14, 18]
   lr: 0.002
   early_stopping_patience: 5
   iou_threshold_map: 0.5
