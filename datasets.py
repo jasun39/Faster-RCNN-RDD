@@ -3,7 +3,7 @@ import torch
 import xml.etree.ElementTree as ET
 import random
 from PIL import Image
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Subset, random_split
 import torchvision.transforms.functional as F
 
 class CustomDataset(Dataset):
@@ -157,3 +157,35 @@ class CustomDataset(Dataset):
         }
 
         return img_tensor, target
+
+    @staticmethod
+    def get_validation_subset(config, num_samples=1000):
+        """
+        Metoda statyczna tworząca subset losowych próbek ze zbioru walidacyjnego
+        na podstawie przekazanej konfiguracji.
+        """
+        dataset_config = config['dataset_params']
+        train_config = config['train_params']
+
+        # Ładujemy pełny dataset (split='train' ma adnotacje)
+        # Używamy CustomDataset bezpośrednio, bo jesteśmy wewnątrz klasy
+        full_dataset = CustomDataset(
+            root_path=dataset_config['root_path'],
+            countries=dataset_config['countries'],
+            class_mapping=dataset_config['class_mapping'],
+            split='train'
+        )
+
+        # Replikacja podziału z train.py, aby nie testować na danych treningowych
+        generator = torch.Generator().manual_seed(train_config['seed'])
+        train_size = int(train_config['train_val_ratio'] * len(full_dataset))
+        val_size = len(full_dataset) - train_size
+        _, val_dataset = random_split(full_dataset, [train_size, val_size], generator)
+
+        # Losowanie 1000 próbek (lub mniej, jeśli dataset jest mniejszy)
+        actual_num_samples = min(num_samples, len(val_dataset))
+        indices = torch.randperm(len(val_dataset))[:actual_num_samples]
+        subset = Subset(val_dataset, indices)
+        
+        print(f"Wybrano {len(subset)} próbek do ewaluacji ze zbioru walidacyjnego.")
+        return subset

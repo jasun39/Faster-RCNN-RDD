@@ -173,7 +173,6 @@ def evaluate(
         elif save_valid_preds == False and counter < 10:
             val_saved_image = np.ones((1, 64, 64, 3))
             
-
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)

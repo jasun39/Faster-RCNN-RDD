@@ -1,6 +1,6 @@
 dataset_params:
   root_path: 'dataset/RDD2022'
-  countries: ['China_Drone', 'China_MotorBike', 'Czech', 'India', 'Japan', 'United_States']
+  countries: ['China_Drone', 'China_MotorBike', 'Czech', 'India', 'Japan', 'United_States', 'Poland']
   class_mapping:
     'BG': 0
     'D00': 1 # Pęknięcie podłuzne
@@ -29,7 +29,7 @@ validation_params:
 
 test_params:
   root_path: 'dataset/RDD2022'
-  countries: ['Japan', 'United_States']
+  countries: ['Poland']
   class_mapping:
     'TŁO': 0
     'PPD': 1
@@ -37,5 +37,5 @@ test_params:
     'PS' : 3
     'WY' : 4
   num_classes: 5
-  weights_path: 'runs/best_model.pth'
-  threshold: 0.1
+  weights_path: 'runs/resnet_50_fpn/best_model.pth'
+  threshold: 0.3

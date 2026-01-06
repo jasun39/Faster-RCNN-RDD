@@ -12,8 +12,6 @@ from datasets import CustomDataset
 from models.create_fasterrcnn_model import create_model
 
 
-model = create_model['fasterrcnn_resnet18']
-
 def visualize(args):
     with open(args.config_path, 'r') as file:
         config = yaml.safe_load(file)
@@ -31,7 +29,7 @@ def visualize(args):
     )
 
     checkpoint = torch.load(test_config['weights_path'], map_location=device)
-    build_model = create_model['fasterrcnn_resnet18']
+    build_model = create_model['fasterrcnn_resnet50_fpn']
     model = build_model(num_classes=test_config['num_classes'], coco_model=False)
     model.load_state_dict(checkpoint)
     model.to(device)
@@ -101,17 +99,19 @@ def visualize(args):
                 boxes=boxes, 
                 labels=current_labels, 
                 colors=current_colors, 
-                width=2,
                 label_colors='black',
+                width=max(2, int(max(img_uint8.shape[1], img_uint8.shape[2]) * 0.002)),
+                font="/Library/Fonts/Arial.ttf",       # Load a high-quality font
+                font_size=int(img_uint8.shape[1] * 0.02),         # Increase font size (Standard is 10)
                 fill_labels=True
             )
         else:
-            result_img = img_uint8
+            result_img = (img_tensor * 255).to(torch.uint8)
 
         # Wyświetlanie Matplotlib
         plt.figure(figsize=(12, 8))
         plt.imshow(to_pil_image(result_img))
-        plt.title(f"Image {i} - Predictions (threshold > {detection_threshold})")
+        plt.title(f"Image {i+1} - Predictions (threshold > {detection_threshold})")
         plt.axis('off')
         plt.show()
 
