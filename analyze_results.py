@@ -60,20 +60,17 @@ def evaluate_and_get_coco_results(model, data_loader, device):
 def main():
     # 1. Konfiguracja
     config_path = 'config/rdd.yaml'
-    weights_path = 'runs/resnet_50_fpn/best_model.pth' # Upewnij się, że ścieżka jest poprawna
+    weights_path = 'runs/resnet_50_fpn/best_model.pth'
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
 
-    # 2. Przygotowanie danych
-    # Używamy metody z datasetu do pobrania podzbioru walidacyjnego
-    # Możesz zmienić num_samples na len(dataset), żeby przetestować całość
     val_dataset = CustomDataset.get_validation_subset(config, num_samples=1000)
     
     data_loader = DataLoader(
         val_dataset,
-        batch_size=1, # Zalecane 1 dla precyzyjnych pomiarów czasu, ale większe też zadziała
+        batch_size=1,
         shuffle=False,
         num_workers=2,
         collate_fn=collate_fn
@@ -110,10 +107,7 @@ def main():
     
     precision = coco_eval.eval['precision']
     
-    # Mapowanie ID klasy na nazwę
-    # W configu masz 'BG':0, 'D00':1 itd. COCO używa catIds
-    class_mapping = config['dataset_params']['class_mapping']
-    # Odwracamy mapowanie, pomijając tło (0)
+    class_mapping = config['test_params']['class_mapping']
     id_to_name = {v: k for k, v in class_mapping.items() if v != 0}
     cat_ids = coco_eval.params.catIds # ID kategorii faktycznie obecnych w ewaluacji
     
@@ -177,9 +171,9 @@ def main():
         mean_curve = np.nanmean(all_curves, axis=0)
         
         # Rysowanie średniej
-        plt.plot(x_recall, mean_curve, label="mAP (Mean)", color='black', linestyle='--', linewidth=3)
+        plt.plot(x_recall, mean_curve, label="mAP (średnia)", color='black', linestyle='--', linewidth=3)
 
-    plt.title("Precision-Recall Curve (IoU=0.5)")
+    #plt.title("Precision-Recall Curve (IoU=0.5)")
     plt.xlabel("Recall")
     plt.ylabel("Precision")
     plt.legend()
