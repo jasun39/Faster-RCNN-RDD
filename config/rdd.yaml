@@ -29,7 +29,7 @@ validation_params:
 
 test_params:
   root_path: 'dataset/RDD2022'
-  countries: ['Poland']
+  countries: ['Czech']
   class_mapping:
     'TŁO': 0
     'PPD': 1

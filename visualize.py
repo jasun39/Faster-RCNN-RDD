@@ -111,7 +111,7 @@ def visualize(args):
         # Wyświetlanie Matplotlib
         plt.figure(figsize=(12, 8))
         plt.imshow(to_pil_image(result_img))
-        plt.title(f"Image {i+1} - Predictions (threshold > {detection_threshold})")
+        #plt.title(f"Image {i+1} - Predictions (threshold > {detection_threshold})")
         plt.axis('off')
         plt.show()
 

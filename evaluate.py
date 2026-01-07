@@ -7,14 +7,12 @@ import matplotlib.pyplot as plt
 import time
 import itertools
 from tqdm import tqdm
-from torch.utils.data import DataLoader, Subset, random_split
-from torchvision.ops import box_iou
+from torch.utils.data import DataLoader
 
 # Importy z Twojego projektu
 from models.create_fasterrcnn_model import create_model
 from datasets import CustomDataset
 from utils.general import collate_fn
-from utils.logging import plot_confusion_matrix, calculate_confusion_matrix_and_fps
 from torch_utils.engine import evaluate
 
 
@@ -43,35 +41,7 @@ def main(args):
     model.load_state_dict(checkpoint)
     model.to(device)
 
-    # Funkcja evaluate z engine.py robi inference i wypisuje statystyki COCO
-    evaluate_stats, _ = evaluate(model, data_loader, device=device)
     
-    avg_fps, cm = calculate_confusion_matrix_and_fps(
-        model, 
-        data_loader, 
-        device, 
-        num_classes=len(config['test_config']['class_mapping']), # Faktyczna liczba klas detekcji (bez tła 0)
-        iou_threshold=0.5,
-        score_threshold=0.15 # Próg z configu walidacji
-    )
-
-    print(f"\nŚredni FPS na próbce (batch_size={args.batch_size}): {avg_fps:.2f} fps")
-
-    # Przygotowanie etykiet do wykresu
-    # class_mapping w YAML to {'BG': 0, 'D00': 1 ...}. Odwracamy to.
-    id_to_name = {v: k for k, v in config['test_config']['class_mapping'].items() if v != 0} # Pomijamy BG=0 w etykietach osi
-    # Sortujemy po ID
-    labels = [id_to_name[i] for i in sorted(id_to_name.keys())]
-    labels.append("Tło") # Dodajemy klasę tła na końcu
-
-    # Rysowanie macierzy
-    plot_confusion_matrix(cm, classes=labels, title=f"Confusion Matrix (N={len(subset)})")
-    
-    print("\nPodsumowanie:")
-    print(f"- Liczba próbek: {len(subset)}")
-    print(f"- Wyniki AP/AR: widoczne powyżej (wyjście COCO Evaluator)")
-    print(f"- FPS: {avg_fps:.2f}")
-    print(f"- Macierz pomyłek zapisana w: runs/confusion_matrix.png")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Ewaluacja modelu RDD (AP, AR, FPS, Confusion Matrix)')
